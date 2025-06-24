@@ -1,10 +1,34 @@
 const std = @import("std");
-const zsig = @import("zsig");
+const zsig = @import("zsig.zig");
 
 pub fn main() !void {
-    // Prints to stderr, ignoring potential errors.
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-    try zsig.advancedPrint();
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+
+    // If no arguments provided, show basic info
+    if (args.len == 1) {
+        try zsig.advancedPrint();
+        return;
+    }
+
+    // Check if this should be handled by CLI
+    const first_arg = args[1];
+    const cli_commands = [_][]const u8{ "keygen", "sign", "verify", "pubkey", "help", "version" };
+    
+    for (cli_commands) |cmd| {
+        if (std.mem.eql(u8, first_arg, cmd)) {
+            const cli = @import("cli.zig");
+            return cli.main();
+        }
+    }
+    
+    // Default behavior for unknown commands
+    std.debug.print("Unknown command: {s}\n", .{first_arg});
+    std.debug.print("Use 'zsig help' for available commands.\n", .{});
 }
 
 test "simple test" {
