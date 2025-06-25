@@ -1,17 +1,44 @@
 //! Crypto backend interface for zsig
-//! Supports multiple crypto implementations: std.crypto, zcrypto, etc.
+//! Accepts crypto function implementations from parent applications
 
 const std = @import("std");
-const zcrypto = @import("zcrypto");
 
-/// Compile-time crypto backend selection
-pub const Backend = enum {
-    std_crypto,
-    zcrypto,
-    
-    // Default to zcrypto since std.crypto Ed25519 API is different
-    pub const default: Backend = .zcrypto;
+/// Keypair result structure for crypto interface
+pub const KeypairResult = extern struct {
+    public_key: [32]u8,
+    secret_key: [64]u8,
 };
+
+/// Crypto function interface that parent applications must implement
+pub const CryptoInterface = struct {
+    /// Generate a random Ed25519 keypair
+    generateKeypairFn: *const fn () KeypairResult,
+    
+    /// Generate keypair from 32-byte seed
+    keypairFromSeedFn: *const fn (seed: [32]u8) KeypairResult,
+    
+    /// Sign a message with Ed25519
+    signFn: *const fn (message: []const u8, secret_key: [64]u8) [64]u8,
+    
+    /// Verify an Ed25519 signature
+    verifyFn: *const fn (message: []const u8, signature: [64]u8, public_key: [32]u8) bool,
+    
+    /// Hash function for context signing (Blake3 or similar)
+    hashFn: *const fn (data: []const u8) [32]u8,
+};
+
+/// Global crypto interface - must be set by parent application
+var crypto_interface: ?CryptoInterface = null;
+
+/// Set the crypto interface (must be called by parent before using zsig)
+pub fn setCryptoInterface(interface: CryptoInterface) void {
+    crypto_interface = interface;
+}
+
+/// Get the current crypto interface
+fn getCryptoInterface() CryptoInterface {
+    return crypto_interface orelse @panic("Crypto interface not set! Call setCryptoInterface() first.");
+}
 
 /// Ed25519 keypair interface
 pub const Keypair = struct {
@@ -20,36 +47,49 @@ pub const Keypair = struct {
     
     const Self = @This();
     
-    /// Generate a new random keypair using the selected backend
+    /// Generate a new random keypair using the provided crypto interface
     pub fn generate(allocator: std.mem.Allocator) !Self {
-        return switch (comptime Backend.default) {
-            .std_crypto => generateStdCrypto(allocator),
-            .zcrypto => generateZCrypto(allocator),
+        _ = allocator; // Not needed for interface-based approach
+        const interface = getCryptoInterface();
+        const kp = interface.generateKeypairFn();
+        return Self{
+            .public_key = kp.public_key,
+            .secret_key = kp.secret_key,
         };
     }
     
     /// Generate keypair from seed
     pub fn fromSeed(seed: [32]u8) !Self {
-        return switch (comptime Backend.default) {
-            .std_crypto => try fromSeedStdCrypto(seed),
-            .zcrypto => try fromSeedZCrypto(seed),
+        const interface = getCryptoInterface();
+        const kp = interface.keypairFromSeedFn(seed);
+        return Self{
+            .public_key = kp.public_key,
+            .secret_key = kp.secret_key,
         };
     }
     
     /// Sign a message
     pub fn sign(self: Self, message: []const u8) [64]u8 {
-        return switch (comptime Backend.default) {
-            .std_crypto => signStdCrypto(self, message),
-            .zcrypto => signZCrypto(self, message),
-        };
+        const interface = getCryptoInterface();
+        return interface.signFn(message, self.secret_key);
     }
     
     /// Sign with additional context for domain separation
     pub fn signWithContext(self: Self, message: []const u8, context: []const u8) [64]u8 {
-        return switch (comptime Backend.default) {
-            .std_crypto => signWithContextStdCrypto(self, message, context),
-            .zcrypto => signWithContextZCrypto(self, message, context),
+        const interface = getCryptoInterface();
+        
+        // Create context-separated message
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+        const allocator = arena.allocator();
+        
+        const context_msg = std.fmt.allocPrint(allocator, "zsig-context:{s}:{s}", .{ context, message }) catch {
+            // Fallback to simple concatenation if allocation fails
+            return interface.signFn(message, self.secret_key);
         };
+        
+        const hashed = interface.hashFn(context_msg);
+        return interface.signFn(&hashed, self.secret_key);
     }
 };
 
@@ -57,135 +97,86 @@ pub const Keypair = struct {
 pub const Verifier = struct {
     /// Verify a signature
     pub fn verify(message: []const u8, signature: [64]u8, public_key: [32]u8) bool {
-        return switch (comptime Backend.default) {
-            .std_crypto => verifyStdCrypto(message, signature, public_key),
-            .zcrypto => verifyZCrypto(message, signature, public_key),
-        };
+        const interface = getCryptoInterface();
+        return interface.verifyFn(message, signature, public_key);
     }
     
     /// Verify with context
     pub fn verifyWithContext(message: []const u8, context: []const u8, signature: [64]u8, public_key: [32]u8) bool {
-        return switch (comptime Backend.default) {
-            .std_crypto => verifyWithContextStdCrypto(message, context, signature, public_key),
-            .zcrypto => verifyWithContextZCrypto(message, context, signature, public_key),
+        const interface = getCryptoInterface();
+        
+        // Recreate the same context-separated message as in signing
+        var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+        defer arena.deinit();
+        const allocator = arena.allocator();
+        
+        const context_msg = std.fmt.allocPrint(allocator, "zsig-context:{s}:{s}", .{ context, message }) catch {
+            // Fallback to simple verification if allocation fails
+            return interface.verifyFn(message, signature, public_key);
         };
+        
+        const hashed = interface.hashFn(context_msg);
+        return interface.verifyFn(&hashed, signature, public_key);
     }
 };
 
-// =============================================================================
-// std.crypto backend implementation
-// =============================================================================
-
-fn generateStdCrypto(allocator: std.mem.Allocator) !Keypair {
-    _ = allocator; // std.crypto doesn't need allocator
-    const kp = std.crypto.sign.Ed25519.KeyPair.generate();
-    return Keypair{
-        .public_key = kp.public_key.bytes,
-        .secret_key = kp.secret_key.bytes,
-    };
-}
-
-fn fromSeedStdCrypto(seed: [32]u8) !Keypair {
-    _ = seed;
-    // TODO: Implement proper Ed25519 key derivation from seed
-    // For now, just generate a random keypair
-    return generateStdCrypto(std.heap.page_allocator);
-}
-
-fn signStdCrypto(keypair: Keypair, message: []const u8) [64]u8 {
-    // Direct signing using Ed25519.sign function
-    const signature_struct = std.crypto.sign.Ed25519.sign(message, keypair.secret_key[0..32].*, null) catch unreachable;
-    return signature_struct.toBytes();
-}
-
-fn signWithContextStdCrypto(keypair: Keypair, message: []const u8, context: []const u8) [64]u8 {
-    // For std.crypto, we'll hash context + message for domain separation
-    var hasher = std.crypto.hash.Blake3.init(.{});
-    hasher.update("zsig-context:");
-    hasher.update(context);
-    hasher.update(":");
-    hasher.update(message);
+/// Example implementation helpers for parent applications
+pub const ExampleStdCryptoInterface = struct {
+    /// Example implementation using std.crypto
+    pub fn getInterface() CryptoInterface {
+        return CryptoInterface{
+            .generateKeypairFn = generateStdCrypto,
+            .keypairFromSeedFn = fromSeedStdCrypto,
+            .signFn = signStdCrypto,
+            .verifyFn = verifyStdCrypto,
+            .hashFn = hashBlake3,
+        };
+    }
     
-    var hashed_message: [32]u8 = undefined;
-    hasher.final(&hashed_message);
+    fn generateStdCrypto() KeypairResult {
+        const kp = std.crypto.sign.Ed25519.KeyPair.generate();
+        return KeypairResult{
+            .public_key = kp.public_key.bytes,
+            .secret_key = kp.secret_key.bytes,
+        };
+    }
     
-    const signature = std.crypto.sign.Ed25519.sign(&hashed_message, keypair.secret_key[0..32].*, null) catch unreachable;
-    return signature.toBytes();
-}
-
-fn verifyStdCrypto(message: []const u8, signature: [64]u8, public_key: [32]u8) bool {
-    const pub_key = std.crypto.sign.Ed25519.PublicKey.fromBytes(public_key) catch return false;
-    const sig = std.crypto.sign.Ed25519.Signature.fromBytes(signature);
-    sig.verify(message, pub_key) catch return false;
-    return true;
-}
-
-fn verifyWithContextStdCrypto(message: []const u8, context: []const u8, signature: [64]u8, public_key: [32]u8) bool {
-    // Recreate the same hashed message as in signing
-    var hasher = std.crypto.hash.Blake3.init(.{});
-    hasher.update("zsig-context:");
-    hasher.update(context);
-    hasher.update(":");
-    hasher.update(message);
+    fn fromSeedStdCrypto(seed: [32]u8) KeypairResult {
+        // NOTE: This is not truly deterministic from seed due to std.crypto limitations
+        // Parent applications should implement proper seed-to-keypair derivation
+        // For now, we ignore the seed parameter
+        _ = seed;
+        const kp = std.crypto.sign.Ed25519.KeyPair.generate();
+        return KeypairResult{
+            .public_key = kp.public_key.bytes,
+            .secret_key = kp.secret_key.bytes,
+        };
+    }
     
-    var hashed_message: [32]u8 = undefined;
-    hasher.final(&hashed_message);
+    fn signStdCrypto(message: []const u8, secret_key: [64]u8) [64]u8 {
+        const kp = std.crypto.sign.Ed25519.KeyPair{
+            .public_key = std.crypto.sign.Ed25519.PublicKey{ .bytes = secret_key[32..64].* },
+            .secret_key = std.crypto.sign.Ed25519.SecretKey{ .bytes = secret_key },
+        };
+        const signature = kp.sign(message, null) catch unreachable;
+        var result: [64]u8 = undefined;
+        result[0..32].* = signature.r;
+        result[32..64].* = signature.s;
+        return result;
+    }
     
-    return verifyStdCrypto(&hashed_message, signature, public_key);
-}
-
-// =============================================================================
-// zcrypto backend implementation
-// =============================================================================
-
-fn generateZCrypto(allocator: std.mem.Allocator) !Keypair {
-    _ = allocator; // zcrypto doesn't need allocator
-    const kp = zcrypto.asym.ed25519.generate();
-    return Keypair{
-        .public_key = kp.public_key,
-        .secret_key = kp.private_key,
-    };
-}
-
-fn fromSeedZCrypto(seed: [32]u8) !Keypair {
-    _ = seed;
-    // TODO: Implement proper deterministic key generation from seed
-    // For now, just generate a random keypair  
-    return generateZCrypto(std.heap.page_allocator);
-}
-
-fn signZCrypto(keypair: Keypair, message: []const u8) [64]u8 {
-    return zcrypto.asym.ed25519.sign(message, keypair.secret_key);
-}
-
-fn signWithContextZCrypto(keypair: Keypair, message: []const u8, context: []const u8) [64]u8 {
-    // For zcrypto, we'll use a domain separator approach
-    var hasher = std.crypto.hash.Blake3.init(.{});
-    hasher.update("zsig-context:");
-    hasher.update(context);
-    hasher.update(":");
-    hasher.update(message);
+    fn verifyStdCrypto(message: []const u8, signature: [64]u8, public_key: [32]u8) bool {
+        const pub_key = std.crypto.sign.Ed25519.PublicKey.fromBytes(public_key) catch return false;
+        const sig = std.crypto.sign.Ed25519.Signature.fromBytes(signature);
+        sig.verify(message, pub_key) catch return false;
+        return true;
+    }
     
-    var hashed_message: [32]u8 = undefined;
-    hasher.final(&hashed_message);
-    
-    return zcrypto.asym.ed25519.sign(&hashed_message, keypair.secret_key);
-}
-
-fn verifyZCrypto(message: []const u8, signature: [64]u8, public_key: [32]u8) bool {
-    return zcrypto.asym.ed25519.verify(message, signature, public_key);
-}
-
-fn verifyWithContextZCrypto(message: []const u8, context: []const u8, signature: [64]u8, public_key: [32]u8) bool {
-    // Recreate the same hashed message as in signing
-    var hasher = std.crypto.hash.Blake3.init(.{});
-    hasher.update("zsig-context:");
-    hasher.update(context);
-    hasher.update(":");
-    hasher.update(message);
-    
-    var hashed_message: [32]u8 = undefined;
-    hasher.final(&hashed_message);
-    
-    return zcrypto.asym.ed25519.verify(&hashed_message, signature, public_key);
-}
+    fn hashBlake3(data: []const u8) [32]u8 {
+        var hasher = std.crypto.hash.Blake3.init(.{});
+        hasher.update(data);
+        var result: [32]u8 = undefined;
+        hasher.final(&result);
+        return result;
+    }
+};

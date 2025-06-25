@@ -32,18 +32,8 @@
     // Once all dependencies are fetched, `zig build` no longer requires
     // internet connectivity.
     .dependencies = .{
-        // zcrypto - Your custom crypto library with enhanced features
-        .zcrypto = .{
-            .url = "https://github.com/ghostkellz/zcrypto/archive/refs/heads/main.tar.gz",
-            // Hash will be computed on first fetch
-            .hash = "12207b5911f4f8f3467953249a7be385d48209ba235854722be1103d6735ed84ce38",
-        },
-        // tokioZ - Async runtime (lazy loaded for future async operations)
-        .tokioZ = .{
-            .url = "https://github.com/ghostkellz/tokioZ/archive/refs/heads/main.tar.gz",
-            .hash = "12200000000000000000000000000000000000000000000000000000000000000000",
-            .lazy = true,
-        },
+        // zsig is now a lightweight library with no external dependencies
+        // Parent applications provide crypto functions via CryptoInterface
     },
     // Specifies the set of files and directories that are included in this package.
     // Only files and directories listed here are included in the `hash` that

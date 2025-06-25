@@ -6,6 +6,9 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
+    // Initialize crypto interface with std.crypto implementation
+    zsig.setCryptoInterface(zsig.ExampleStdCryptoInterface.getInterface());
+
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
 
