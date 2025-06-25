@@ -32,8 +32,10 @@
     // Once all dependencies are fetched, `zig build` no longer requires
     // internet connectivity.
     .dependencies = .{
-        // zsig is now a lightweight library with no external dependencies
-        // Parent applications provide crypto functions via CryptoInterface
+        .zcrypto = .{
+            .url = "https://github.com/GhostKellz/zcrypto/archive/main.tar.gz",
+            .hash = "1220000000000000000000000000000000000000000000000000000000000000",
+        },
     },
     // Specifies the set of files and directories that are included in this package.
     // Only files and directories listed here are included in the `hash` that

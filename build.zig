@@ -18,7 +18,11 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    // No external dependencies - zsig now uses parent crypto functions
+    // Add zcrypto dependency
+    const zcrypto = b.dependency("zcrypto", .{
+        .target = target,
+        .optimize = optimize,
+    });
 
     // This creates a module, which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
@@ -39,7 +43,7 @@ pub fn build(b: *std.Build) void {
         // which requires us to specify a target.
         .target = target,
         .imports = &.{
-            // No external module imports - zsig is now standalone
+            .{ .name = "zcrypto", .module = zcrypto.module("zcrypto") },
         },
     });
 
@@ -81,6 +85,7 @@ pub fn build(b: *std.Build) void {
                 // can be extremely useful in case of collisions (which can happen
                 // importing modules from different packages).
                 .{ .name = "zsig", .module = mod },
+                .{ .name = "zcrypto", .module = zcrypto.module("zcrypto") },
             },
         }),
     });

@@ -6,8 +6,8 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Initialize crypto interface with std.crypto implementation
-    zsig.setCryptoInterface(zsig.ExampleStdCryptoInterface.getInterface());
+    // Initialize crypto interface with zcrypto implementation (preferred)
+    zsig.setCryptoInterface(zsig.ZCryptoInterface.getInterface());
 
     const args = try std.process.argsAlloc(allocator);
     defer std.process.argsFree(allocator, args);
@@ -20,7 +20,7 @@ pub fn main() !void {
 
     // Check if this should be handled by CLI
     const first_arg = args[1];
-    const cli_commands = [_][]const u8{ "keygen", "sign", "verify", "pubkey", "help", "version" };
+    const cli_commands = [_][]const u8{ "keygen", "sign", "verify", "pubkey", "help", "version", "multisig", "hmac" };
     
     for (cli_commands) |cmd| {
         if (std.mem.eql(u8, first_arg, cmd)) {
