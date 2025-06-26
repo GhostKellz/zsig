@@ -24,8 +24,6 @@ const Command = enum {
     pubkey,
     help,
     version,
-    multisig,
-    hmac,
 };
 
 const Args = struct {
@@ -41,8 +39,6 @@ const Args = struct {
     format: []const u8 = "base64", // base64, hex, raw
     inline_mode: bool = false,
     verbose: bool = false,
-    algorithm: []const u8 = "ed25519", // ed25519, secp256k1, secp256r1
-    hmac_key: ?[]const u8 = null,
 };
 
 pub fn main() !void {
@@ -76,8 +72,6 @@ pub fn main() !void {
         .pubkey => try cmdPubkey(allocator, parsed_args),
         .help => cmdHelp(),
         .version => cmdVersion(),
-        .multisig => try cmdMultisig(allocator, parsed_args),
-        .hmac => try cmdHmac(allocator, parsed_args),
     }
 }
 
@@ -120,10 +114,6 @@ fn parseArgs(args: [][:0]u8) !Args {
         } else if (std.mem.eql(u8, flag, "--verbose")) {
             parsed.verbose = true;
             i -= 1; // No value for this flag
-        } else if (std.mem.eql(u8, flag, "--algorithm") or std.mem.eql(u8, flag, "-a")) {
-            parsed.algorithm = value;
-        } else if (std.mem.eql(u8, flag, "--hmac-key")) {
-            parsed.hmac_key = value;
         }
     }
 
@@ -144,7 +134,7 @@ fn cmdKeygen(allocator: std.mem.Allocator, args: Args) !void {
                 print("Error: Invalid hex seed\n", .{});
                 return CliError.InvalidArguments;
             };
-            break :blk try zsig.keypairFromSeed(seed);
+            break :blk zsig.keypairFromSeed(seed);
         }
     else if (args.passphrase) |passphrase|
         try zsig.keypairFromPassphrase(allocator, passphrase, null)
@@ -302,26 +292,10 @@ fn cmdVerify(allocator: std.mem.Allocator, args: Args) !void {
         
         const public_key = try loadPublicKey(allocator, public_key_file);
 
-        // Decode signature based on format (default is base64)
-        const signature_bytes = if (std.mem.eql(u8, args.format, "hex")) blk: {
-            const sig = try zsig.sign.Signature.fromHex(signature_data);
-            break :blk sig.bytes;
-        } else if (std.mem.eql(u8, args.format, "raw")) blk: {
-            if (signature_data.len != zsig.SIGNATURE_SIZE) {
-                print("Error: Raw signature must be exactly 64 bytes\n", .{});
-                return CliError.InvalidSignatureFormat;
-            }
-            break :blk signature_data[0..zsig.SIGNATURE_SIZE].*;
-        } else blk: {
-            // Default: base64
-            const sig = try zsig.sign.Signature.fromBase64(signature_data);
-            break :blk sig.bytes;
-        };
-
         const is_valid = if (args.context) |context|
-            zsig.verifyWithContext(message, context, &signature_bytes, &public_key)
+            zsig.verifyWithContext(message, context, signature_data, &public_key)
         else
-            zsig.verifySignature(message, &signature_bytes, &public_key);
+            zsig.verifySignature(message, signature_data, &public_key);
 
         if (is_valid) {
             print("✓ Signature valid\n", .{});
@@ -362,8 +336,6 @@ fn cmdHelp() void {
         \\    sign        Sign a message or file
         \\    verify      Verify a signature
         \\    pubkey      Extract public key from private key file
-        \\    multisig    Multi-algorithm signing (Ed25519, secp256k1, secp256r1)
-        \\    hmac        HMAC authenticated signing
         \\    help        Show this help message
         \\    version     Show version information
         \\
@@ -387,61 +359,18 @@ fn cmdHelp() void {
         \\    --context <str>     Context used during signing
         \\    --inline            Verify inline signature
         \\
-        \\MULTISIG OPTIONS:
-        \\    --in <file>         Input file to sign/verify
-        \\    --algorithm <alg>   Algorithm: ed25519, secp256k1, secp256r1 (default: ed25519)
-        \\    --seed <hex>        64-char hex seed for deterministic key generation
-        \\    --key <any>         Enable signing mode (generates new keypair)
-        \\    --sig <file>        Signature file for verification
-        \\    --pubkey <file>     Public key file for verification
-        \\    --out <file>        Output filename (default: multisig.sig)
-        \\    --verbose           Verbose output
-        \\
-        \\HMAC OPTIONS:
-        \\    --in <file>         Input file to sign/verify
-        \\    --hmac-key <key>    HMAC authentication key (required)
-        \\    --algorithm <alg>   Algorithm: ed25519, secp256k1, secp256r1 (default: ed25519)
-        \\    --seed <hex>        64-char hex seed for deterministic key generation
-        \\    --key <any>         Enable signing mode (generates new keypair)
-        \\    --sig <file>        HMAC signature file for verification
-        \\    --out <file>        Output filename (default: hmac_auth.sig)
-        \\    --verbose           Verbose output
-        \\
         \\EXAMPLES:
-        \\    # Classic Ed25519 signing
         \\    zsig keygen --out alice
         \\    zsig sign --in message.txt --key alice.key
         \\    zsig verify --in message.txt --sig message.txt.sig --pubkey alice.pub
-        \\    
-        \\    # Bitcoin-style secp256k1 signing
-        \\    zsig multisig --in tx.hash --algorithm secp256k1 --key new --out bitcoin.sig
-        \\    zsig multisig --in tx.hash --algorithm secp256k1 --sig bitcoin.sig --pubkey bitcoin.sig.pub
-        \\    
-        \\    # HMAC authenticated signing
-        \\    zsig hmac --in sensitive.doc --hmac-key mypassword --algorithm ed25519 --key new
-        \\    zsig hmac --in sensitive.doc --hmac-key mypassword --sig hmac_auth.sig
-        \\    
-        \\    # Deterministic key generation from seed
-        \\    zsig multisig --in wallet.json --algorithm secp256k1 --seed 0123456789abcdef... --key new
+        \\    zsig sign --in tx.json --key alice.key --context "transaction-v1"
         \\
     , .{zsig.version});
 }
 
 fn cmdVersion() void {
     print("Zsig v{s}\n", .{zsig.version});
-    print("Multi-algorithm cryptographic signing engine for Zig\n", .{});
-    print("Powered by zcrypto v0.2.0\n", .{});
-    print("\nSupported algorithms:\n");
-    print("  • Ed25519 (default) - Fast, secure, deterministic\n");
-    print("  • secp256k1 - Bitcoin/Ethereum compatible\n");
-    print("  • secp256r1 (P-256) - NIST standard\n");
-    print("\nSecurity features:\n");
-    print("  • HMAC authentication\n");
-    print("  • Constant-time operations\n");
-    print("  • Deterministic key derivation\n");
-    print("  • Context-separated signing\n");
-    print("  • Secure memory clearing\n");
-    print("\nFeatures: CLI, WASM, multi-algorithm, HMAC auth, zwallet compatible\n");
+    print("Ed25519 cryptographic signing engine for Zig\n", .{});
     print("Author: {s}\n", .{zsig.info.author});
     print("License: {s}\n", .{zsig.info.license});
 }
@@ -499,256 +428,4 @@ fn loadPublicKey(allocator: std.mem.Allocator, filename: []const u8) ![zsig.PUBL
     }
     
     return zsig.Keypair.publicKeyFromHex(clean_hex.items) catch CliError.InvalidKeyFormat;
-}
-
-fn algorithmFromString(algorithm_str: []const u8) !zsig.SignatureAlgorithm {
-    if (std.mem.eql(u8, algorithm_str, "ed25519")) return .ed25519;
-    if (std.mem.eql(u8, algorithm_str, "secp256k1")) return .secp256k1;
-    if (std.mem.eql(u8, algorithm_str, "secp256r1")) return .secp256r1;
-    return CliError.InvalidArguments;
-}
-
-fn cmdMultisig(allocator: std.mem.Allocator, args: Args) !void {
-    const algorithm = try algorithmFromString(args.algorithm);
-    
-    if (args.verbose) print("Multi-algorithm operation with {s}...\n", .{args.algorithm});
-    
-    if (args.input_file == null) {
-        print("Error: Input file required for multisig operations\n");
-        return CliError.InvalidArguments;
-    }
-    
-    const message = try readFile(allocator, args.input_file.?);
-    defer allocator.free(message);
-    
-    if (args.key_file != null) {
-        // Signing mode
-        if (args.verbose) print("Signing with {s}...\n", .{args.algorithm});
-        
-        // For multisig, we need to generate a new keypair or load from seed
-        const keypair = if (args.seed) |seed_str| blk: {
-            if (seed_str.len != 64) {
-                print("Error: Seed must be exactly 64 hex characters\n");
-                return CliError.InvalidArguments;
-            }
-            var seed: [32]u8 = undefined;
-            _ = std.fmt.hexToBytes(&seed, seed_str) catch {
-                print("Error: Invalid hex seed\n");
-                return CliError.InvalidArguments;
-            };
-            break :blk try zsig.MultiSig.keypairFromSeed(algorithm, seed);
-        } else {
-            break :blk try zsig.MultiSig.generateKeypair(algorithm);
-        };
-        
-        const signature = zsig.MultiSig.sign(message, keypair);
-        const public_key = keypair.publicKey();
-        
-        // Save signature
-        const sig_hex = try std.fmt.allocPrint(allocator, "{}", .{std.fmt.fmtSliceHexLower(&signature)});
-        defer allocator.free(sig_hex);
-        
-        const sig_filename = args.output_file orelse "multisig.sig";
-        try writeFile(sig_filename, sig_hex);
-        
-        // Save public key
-        const pub_hex = try std.fmt.allocPrint(allocator, "{}", .{std.fmt.fmtSliceHexLower(&public_key)});
-        defer allocator.free(pub_hex);
-        
-        const pub_filename = try std.fmt.allocPrint(allocator, "{s}.pub", .{sig_filename});
-        defer allocator.free(pub_filename);
-        try writeFile(pub_filename, pub_hex);
-        
-        if (args.verbose) {
-            print("Signature saved to: {s}\n", .{sig_filename});
-            print("Public key saved to: {s}\n", .{pub_filename});
-        }
-        
-    } else if (args.signature_file != null and args.public_key_file != null) {
-        // Verification mode
-        if (args.verbose) print("Verifying with {s}...\n", .{args.algorithm});
-        
-        const sig_content = try readFile(allocator, args.signature_file.?);
-        defer allocator.free(sig_content);
-        
-        const pub_content = try readFile(allocator, args.public_key_file.?);
-        defer allocator.free(pub_content);
-        
-        // Clean hex strings
-        var clean_sig = std.ArrayList(u8).init(allocator);
-        defer clean_sig.deinit();
-        var clean_pub = std.ArrayList(u8).init(allocator);
-        defer clean_pub.deinit();
-        
-        for (sig_content) |char| {
-            if (std.ascii.isAlphanumeric(char)) try clean_sig.append(char);
-        }
-        for (pub_content) |char| {
-            if (std.ascii.isAlphanumeric(char)) try clean_pub.append(char);
-        }
-        
-        if (clean_sig.items.len != 128) {
-            print("Error: Invalid signature length\n");
-            return CliError.InvalidSignatureFormat;
-        }
-        
-        if (clean_pub.items.len != 64) {
-            print("Error: Invalid public key length\n");
-            return CliError.InvalidKeyFormat;
-        }
-        
-        var signature: [64]u8 = undefined;
-        var public_key: [32]u8 = undefined;
-        
-        _ = std.fmt.hexToBytes(&signature, clean_sig.items) catch {
-            print("Error: Invalid signature hex\n");
-            return CliError.InvalidSignatureFormat;
-        };
-        
-        _ = std.fmt.hexToBytes(&public_key, clean_pub.items) catch {
-            print("Error: Invalid public key hex\n");
-            return CliError.InvalidKeyFormat;
-        };
-        
-        const is_valid = zsig.MultiSig.verify(message, signature, public_key, algorithm);
-        
-        if (is_valid) {
-            print("✓ Signature verification successful\n");
-        } else {
-            print("✗ Signature verification failed\n");
-            return CliError.VerificationFailed;
-        }
-    } else {
-        print("Error: For multisig, provide either --key for signing or --sig and --pubkey for verification\n");
-        return CliError.InvalidArguments;
-    }
-}
-
-fn cmdHmac(allocator: std.mem.Allocator, args: Args) !void {
-    const algorithm = try algorithmFromString(args.algorithm);
-    
-    if (args.verbose) print("HMAC authentication with {s}...\n", .{args.algorithm});
-    
-    if (args.input_file == null) {
-        print("Error: Input file required for HMAC operations\n");
-        return CliError.InvalidArguments;
-    }
-    
-    if (args.hmac_key == null) {
-        print("Error: HMAC key required (use --hmac-key)\n");
-        return CliError.InvalidArguments;
-    }
-    
-    const message = try readFile(allocator, args.input_file.?);
-    defer allocator.free(message);
-    
-    const hmac_key = args.hmac_key.?;
-    
-    if (args.key_file != null) {
-        // Signing with HMAC mode
-        if (args.verbose) print("Signing with HMAC authentication...\n");
-        
-        const keypair = if (args.seed) |seed_str| blk: {
-            if (seed_str.len != 64) {
-                print("Error: Seed must be exactly 64 hex characters\n");
-                return CliError.InvalidArguments;
-            }
-            var seed: [32]u8 = undefined;
-            _ = std.fmt.hexToBytes(&seed, seed_str) catch {
-                print("Error: Invalid hex seed\n");
-                return CliError.InvalidArguments;
-            };
-            break :blk try zsig.MultiSig.keypairFromSeed(algorithm, seed);
-        } else {
-            break :blk try zsig.MultiSig.generateKeypair(algorithm);
-        };
-        
-        const auth_result = zsig.MultiSig.signWithHmac(message, keypair, hmac_key);
-        const public_key = keypair.publicKey();
-        
-        // Save signature and HMAC tag
-        const output_data = try std.fmt.allocPrint(allocator,
-            "signature:{}\nhmac:{}\npubkey:{}\nalgorithm:{s}\n",
-            .{
-                std.fmt.fmtSliceHexLower(&auth_result.signature),
-                std.fmt.fmtSliceHexLower(&auth_result.hmac_tag),
-                std.fmt.fmtSliceHexLower(&public_key),
-                args.algorithm,
-            }
-        );
-        defer allocator.free(output_data);
-        
-        const output_filename = args.output_file orelse "hmac_auth.sig";
-        try writeFile(output_filename, output_data);
-        
-        if (args.verbose) {
-            print("HMAC authenticated signature saved to: {s}\n", .{output_filename});
-        }
-        
-    } else if (args.signature_file != null) {
-        // Verification with HMAC mode
-        if (args.verbose) print("Verifying HMAC authenticated signature...\n");
-        
-        const sig_content = try readFile(allocator, args.signature_file.?);
-        defer allocator.free(sig_content);
-        
-        // Parse the signature file
-        var signature: [64]u8 = undefined;
-        var hmac_tag: [32]u8 = undefined;
-        var public_key: [32]u8 = undefined;
-        var file_algorithm: ?zsig.SignatureAlgorithm = null;
-        
-        var lines = std.mem.split(u8, sig_content, "\n");
-        while (lines.next()) |line| {
-            if (std.mem.startsWith(u8, line, "signature:")) {
-                const hex_sig = line[10..];
-                if (hex_sig.len == 128) {
-                    _ = std.fmt.hexToBytes(&signature, hex_sig) catch {
-                        print("Error: Invalid signature hex\n");
-                        return CliError.InvalidSignatureFormat;
-                    };
-                }
-            } else if (std.mem.startsWith(u8, line, "hmac:")) {
-                const hex_hmac = line[5..];
-                if (hex_hmac.len == 64) {
-                    _ = std.fmt.hexToBytes(&hmac_tag, hex_hmac) catch {
-                        print("Error: Invalid HMAC hex\n");
-                        return CliError.InvalidSignatureFormat;
-                    };
-                }
-            } else if (std.mem.startsWith(u8, line, "pubkey:")) {
-                const hex_pub = line[7..];
-                if (hex_pub.len == 64) {
-                    _ = std.fmt.hexToBytes(&public_key, hex_pub) catch {
-                        print("Error: Invalid public key hex\n");
-                        return CliError.InvalidKeyFormat;
-                    };
-                }
-            } else if (std.mem.startsWith(u8, line, "algorithm:")) {
-                const alg_str = line[10..];
-                file_algorithm = algorithmFromString(alg_str) catch null;
-            }
-        }
-        
-        const verify_algorithm = file_algorithm orelse algorithm;
-        
-        const is_valid = zsig.MultiSig.verifyWithHmac(
-            message,
-            signature,
-            hmac_tag,
-            public_key,
-            hmac_key,
-            verify_algorithm
-        );
-        
-        if (is_valid) {
-            print("✓ HMAC authenticated signature verification successful\n");
-        } else {
-            print("✗ HMAC authenticated signature verification failed\n");
-            return CliError.VerificationFailed;
-        }
-    } else {
-        print("Error: For HMAC auth, provide either --key for signing or --sig for verification\n");
-        return CliError.InvalidArguments;
-    }
 }

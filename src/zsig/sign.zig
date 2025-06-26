@@ -50,13 +50,13 @@ pub const Signature = struct {
 
 /// Sign a message using Ed25519 (detached signature)
 pub fn sign(message: []const u8, keypair: key.Keypair) !Signature {
-    const signature_bytes = keypair.sign(message);
+    const signature_bytes = try keypair.sign(message);
     return Signature{ .bytes = signature_bytes };
 }
 
 /// Sign a message and return raw bytes
 pub fn signBytes(message: []const u8, keypair: key.Keypair) ![SIGNATURE_SIZE]u8 {
-    return keypair.sign(message);
+    return try keypair.sign(message);
 }
 
 /// Create an inline signature (message + signature concatenated)
@@ -72,7 +72,7 @@ pub fn signInline(allocator: std.mem.Allocator, message: []const u8, keypair: ke
 
 /// Sign with additional context (domain separation)
 pub fn signWithContext(message: []const u8, context: []const u8, keypair: key.Keypair) !Signature {
-    const signature_bytes = keypair.signWithContext(message, context);
+    const signature_bytes = try keypair.signWithContext(message, context);
     return Signature{ .bytes = signature_bytes };
 }
 
@@ -111,7 +111,7 @@ test "basic signing" {
 
 test "deterministic signing" {
     const seed = [_]u8{42} ** 32;
-    const keypair = try key.Keypair.fromSeed(seed);
+    const keypair = key.Keypair.fromSeed(seed);
     const message = "deterministic test";
     
     const sig1 = try sign(message, keypair);

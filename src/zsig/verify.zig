@@ -15,17 +15,17 @@ pub fn verify(message: []const u8, signature: []const u8, public_key: []const u8
     const pub_key_bytes: [key.PUBLIC_KEY_SIZE]u8 = public_key[0..key.PUBLIC_KEY_SIZE].*;
     const sig_bytes: [sign.SIGNATURE_SIZE]u8 = signature[0..sign.SIGNATURE_SIZE].*;
 
-    return backend.Verifier.verify(message, sig_bytes, pub_key_bytes);
+    return backend.verify(message, sig_bytes, pub_key_bytes);
 }
 
 /// Verify using Signature and Keypair structs
 pub fn verifySignature(message: []const u8, signature: sign.Signature, public_key: [key.PUBLIC_KEY_SIZE]u8) bool {
-    return backend.Verifier.verify(message, signature.bytes, public_key);
+    return backend.verify(message, signature.bytes, public_key);
 }
 
 /// Verify using a keypair (uses public key part)
 pub fn verifyWithKeypair(message: []const u8, signature: sign.Signature, keypair: key.Keypair) bool {
-    return backend.Verifier.verify(message, signature.bytes, keypair.publicKey());
+    return backend.verify(message, signature.bytes, keypair.publicKey());
 }
 
 /// Verify an inline signature (message + signature concatenated)
@@ -54,13 +54,15 @@ pub fn extractSignature(signed_message: []const u8) ?[]const u8 {
 
 /// Verify with additional context (domain separation) - must match signing context
 pub fn verifyWithContext(message: []const u8, context: []const u8, signature: []const u8, public_key: []const u8) bool {
-    if (signature.len != sign.SIGNATURE_SIZE) return false;
-    if (public_key.len != key.PUBLIC_KEY_SIZE) return false;
-
-    const pub_key_bytes: [key.PUBLIC_KEY_SIZE]u8 = public_key[0..key.PUBLIC_KEY_SIZE].*;
-    const sig_bytes: [sign.SIGNATURE_SIZE]u8 = signature[0..sign.SIGNATURE_SIZE].*;
-
-    return backend.Verifier.verifyWithContext(message, context, sig_bytes, pub_key_bytes);
+    // Recreate the domain-separated hash
+    var hasher = crypto.hash.blake2.Blake2b256.init(.{});
+    hasher.update(context);
+    hasher.update(message);
+    
+    var domain_separated_hash: [32]u8 = undefined;
+    hasher.final(&domain_separated_hash);
+    
+    return verify(&domain_separated_hash, signature, public_key);
 }
 
 /// Batch verification for multiple signatures (more efficient than individual verification)
@@ -286,18 +288,17 @@ test "detailed verification" {
     const signature = try sign.sign(message, keypair);
     
     // Valid signature
-    const pub_key = keypair.publicKey();
-    const result1 = verifyDetailed(message, &signature.bytes, &pub_key);
+    const result1 = verifyDetailed(message, &signature.bytes, &keypair.publicKey());
     try std.testing.expect(result1.valid);
     try std.testing.expect(result1.error_type == null);
     
     // Invalid signature length
-    const result2 = verifyDetailed(message, signature.bytes[0..32], &pub_key);
+    const result2 = verifyDetailed(message, signature.bytes[0..32], &keypair.publicKey());
     try std.testing.expect(!result2.valid);
     try std.testing.expect(result2.error_type == .invalid_signature_length);
     
     // Invalid public key length
-    const result3 = verifyDetailed(message, &signature.bytes, pub_key[0..16]);
+    const result3 = verifyDetailed(message, &signature.bytes, keypair.publicKey()[0..16]);
     try std.testing.expect(!result3.valid);
     try std.testing.expect(result3.error_type == .invalid_public_key_length);
 }

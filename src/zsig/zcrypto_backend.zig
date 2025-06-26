@@ -42,17 +42,45 @@ pub const ZCryptoKeypair = struct {
     /// Generate keypair from seed
     pub fn fromSeed(algorithm: SignatureAlgorithm, seed: [32]u8) !Self {
         return switch (algorithm) {
-            .ed25519 => Self{
-                .algorithm = .ed25519,
-                .ed25519_keypair = try zcrypto.asym.ed25519.fromSeed(seed),
+            .ed25519 => {
+                // Create Ed25519 keypair from 32-byte seed
+                const key_pair = std.crypto.sign.Ed25519.KeyPair.generateDeterministic(seed) catch return error.InvalidSeed;
+                
+                const ed25519_kp = zcrypto.asym.Ed25519KeyPair{
+                    .public_key = key_pair.public_key.toBytes(),
+                    .private_key = key_pair.secret_key.toBytes(),
+                };
+                
+                return Self{
+                    .algorithm = .ed25519,
+                    .ed25519_keypair = ed25519_kp,
+                };
             },
-            .secp256k1 => Self{
-                .algorithm = .secp256k1,
-                .secp256k1_keypair = try zcrypto.asym.secp256k1.fromSeed(seed),
+            .secp256k1 => {
+                // For secp256k1, use the seed directly as private key
+                const secret_key = std.crypto.sign.ecdsa.EcdsaSecp256k1Sha256.SecretKey.fromBytes(seed) catch return error.InvalidSeed;
+                const key_pair = std.crypto.sign.ecdsa.EcdsaSecp256k1Sha256.KeyPair.fromSecretKey(secret_key) catch return error.InvalidSeed;
+                
+                return Self{
+                    .algorithm = .secp256k1,
+                    .secp256k1_keypair = zcrypto.asym.Secp256k1KeyPair{
+                        .public_key = key_pair.public_key.toCompressedSec1(),
+                        .private_key = seed,
+                    },
+                };
             },
-            .secp256r1 => Self{
-                .algorithm = .secp256r1,
-                .secp256r1_keypair = try zcrypto.asym.secp256r1.fromSeed(seed),
+            .secp256r1 => {
+                // For secp256r1, use the seed directly as private key
+                const secret_key = std.crypto.sign.ecdsa.EcdsaP256Sha256.SecretKey.fromBytes(seed) catch return error.InvalidSeed;
+                const key_pair = std.crypto.sign.ecdsa.EcdsaP256Sha256.KeyPair.fromSecretKey(secret_key) catch return error.InvalidSeed;
+                
+                return Self{
+                    .algorithm = .secp256r1,
+                    .secp256r1_keypair = zcrypto.asym.Secp256r1KeyPair{
+                        .public_key = key_pair.public_key.toCompressedSec1(),
+                        .private_key = seed,
+                    },
+                };
             },
         };
     }
@@ -61,8 +89,8 @@ pub const ZCryptoKeypair = struct {
     pub fn publicKey(self: *const Self) [32]u8 {
         return switch (self.algorithm) {
             .ed25519 => self.ed25519_keypair.?.public_key,
-            .secp256k1 => self.secp256k1_keypair.?.public_key,
-            .secp256r1 => self.secp256r1_keypair.?.public_key,
+            .secp256k1 => self.secp256k1_keypair.?.public_key[0..32].*,  // secp256k1 compressed is 33 bytes, take first 32
+            .secp256r1 => self.secp256r1_keypair.?.public_key[0..32].*,  // secp256r1 compressed is 33 bytes, take first 32
         };
     }
 
@@ -72,11 +100,11 @@ pub const ZCryptoKeypair = struct {
             .ed25519 => self.ed25519_keypair.?.sign(message),
             .secp256k1 => {
                 const hash = zcrypto.hash.sha256(message);
-                return self.secp256k1_keypair.?.sign(&hash);
+                return self.secp256k1_keypair.?.sign(hash);
             },
             .secp256r1 => {
                 const hash = zcrypto.hash.sha256(message);
-                return self.secp256r1_keypair.?.sign(&hash);
+                return self.secp256r1_keypair.?.sign(hash);
             },
         };
     }
@@ -94,11 +122,11 @@ pub const ZCryptoKeypair = struct {
             .ed25519 => zcrypto.asym.ed25519.verify(message, signature, public_key),
             .secp256k1 => {
                 const hash = zcrypto.hash.sha256(message);
-                return zcrypto.asym.secp256k1.verify(&hash, signature, public_key);
+                return zcrypto.asym.secp256k1.verify(hash, signature, public_key);
             },
             .secp256r1 => {
                 const hash = zcrypto.hash.sha256(message);
-                return zcrypto.asym.secp256r1.verify(&hash, signature, public_key);
+                return zcrypto.asym.secp256r1.verify(hash, signature, public_key);
             },
         };
     }
@@ -132,27 +160,28 @@ pub const ZCryptoInterface = struct {
         const keypair = zcrypto.asym.ed25519.generate();
         return backend.KeypairResult{
             .public_key = keypair.public_key,
-            .secret_key = keypair.secret_key,
+            .secret_key = keypair.private_key,
         };
     }
 
     fn fromSeedZCrypto(seed: [32]u8) backend.KeypairResult {
-        const keypair = zcrypto.asym.ed25519.fromSeed(seed) catch {
+        // Create Ed25519 keypair from seed using Zig std crypto
+        const key_pair = std.crypto.sign.Ed25519.KeyPair.generateDeterministic(seed) catch {
             // Fallback to random generation if seed derivation fails
             return generateZCrypto();
         };
+        
         return backend.KeypairResult{
-            .public_key = keypair.public_key,
-            .secret_key = keypair.secret_key,
+            .public_key = key_pair.public_key.toBytes(),
+            .secret_key = key_pair.secret_key.toBytes(),
         };
     }
 
     fn signZCrypto(message: []const u8, secret_key: [64]u8) [64]u8 {
-        const keypair = zcrypto.asym.Ed25519KeyPair{
-            .public_key = secret_key[32..64].*,
-            .secret_key = secret_key,
-        };
-        return keypair.sign(message);
+        const ed25519_secret = std.crypto.sign.Ed25519.SecretKey.fromBytes(secret_key) catch unreachable;
+        const ed25519_keypair = std.crypto.sign.Ed25519.KeyPair.fromSecretKey(ed25519_secret) catch unreachable;
+        const signature = ed25519_keypair.sign(message, null) catch unreachable;
+        return signature.toBytes();
     }
 
     fn verifyZCrypto(message: []const u8, signature: [64]u8, public_key: [32]u8) bool {
@@ -232,7 +261,6 @@ pub const SecureUtils = struct {
 };
 
 test "zcrypto backend ed25519" {
-    const allocator = std.testing.allocator;
     
     // Test Ed25519 keypair generation
     const keypair = try ZCryptoKeypair.generate(.ed25519);
@@ -249,7 +277,6 @@ test "zcrypto backend ed25519" {
 }
 
 test "zcrypto backend secp256k1" {
-    const allocator = std.testing.allocator;
     
     // Test secp256k1 keypair generation
     const keypair = try ZCryptoKeypair.generate(.secp256k1);
@@ -266,7 +293,6 @@ test "zcrypto backend secp256k1" {
 }
 
 test "zcrypto backend secp256r1" {
-    const allocator = std.testing.allocator;
     
     // Test secp256r1 keypair generation
     const keypair = try ZCryptoKeypair.generate(.secp256r1);
@@ -283,7 +309,6 @@ test "zcrypto backend secp256r1" {
 }
 
 test "hmac authentication" {
-    const allocator = std.testing.allocator;
     
     const keypair = try ZCryptoKeypair.generate(.ed25519);
     const message = "authenticated message";

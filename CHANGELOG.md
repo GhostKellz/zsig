@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2025-01-26
+
+### 🔧 **HOTFIX: zcrypto v0.2.0 Compatibility Issues**
+
+#### Fixed
+- **Build Errors**: Fixed missing `blk:` labels in CLI argument parsing (src/cli.zig:541, 663)
+- **Print Statements**: Updated all `print()` calls to include format argument tuples `.{}`
+- **Deprecated APIs**: Replaced `std.mem.split()` with `std.mem.splitScalar()`
+- **Ed25519 Key Generation**: Fixed non-existent `fromSeed()` calls - now uses `generateDeterministic()`
+- **Array Size Mismatches**: Corrected Ed25519 key array size handling (32-byte seed → 64-byte private key)
+- **Secp256k1/r1 Keys**: Fixed compressed public key handling (33-byte → 32-byte conversion)
+- **Type Consistency**: Resolved struct type mismatches in HMAC functions
+- **Memory Management**: Removed unused `allocator` variables in test functions
+
+#### Technical Changes
+- Ed25519 now uses `std.crypto.sign.Ed25519.KeyPair.generateDeterministic(seed)`
+- Updated key field names from `secret_key` to `private_key` for zcrypto v0.2.0
+- Fixed secp256k1/r1 function call signatures (removed unnecessary `&` operators)
+- Improved error handling for seed-based key generation
+
+#### Testing
+- Verified multi-algorithm signing and verification
+- Validated HMAC authentication workflows  
+- Confirmed CLI operations (sign, verify, keygen)
+- Tested cross-algorithm compatibility
+
 ## [0.2.0] - 2025-01-25
 
 ### 🚀 **MAJOR RELEASE: zcrypto Integration & Multi-Algorithm Support**

@@ -32,8 +32,8 @@ pub const Keypair = struct {
     }
 
     /// Generate a keypair from a 32-byte seed (deterministic)
-    pub fn fromSeed(seed: [SEED_SIZE]u8) !Self {
-        const inner = try backend.Keypair.fromSeed(seed);
+    pub fn fromSeed(seed: [SEED_SIZE]u8) Self {
+        const inner = backend.Keypair.fromSeed(seed);
         return Self{ .inner = inner };
     }
 
@@ -45,7 +45,7 @@ pub const Keypair = struct {
         var seed: [SEED_SIZE]u8 = undefined;
         try crypto.pwhash.pbkdf2(&seed, passphrase, actual_salt, 100000, crypto.auth.hmac.sha2.HmacSha256);
         
-        return try fromSeed(seed);
+        return fromSeed(seed);
     }
 
     /// Get public key bytes
@@ -55,7 +55,7 @@ pub const Keypair = struct {
 
     /// Get secret key bytes  
     pub fn secretKey(self: *const Self) [PRIVATE_KEY_SIZE]u8 {
-        return self.inner.secret_key;
+        return self.inner.private_key;
     }
 
     /// Export public key as hex string
@@ -68,7 +68,7 @@ pub const Keypair = struct {
         const encoder = base64.standard.Encoder;
         const encoded_len = encoder.calcSize(PRIVATE_KEY_SIZE);
         const result = try allocator.alloc(u8, encoded_len);
-        _ = encoder.encode(result, &self.inner.secret_key);
+        _ = encoder.encode(result, &self.inner.private_key);
         return result;
     }
 
@@ -99,7 +99,7 @@ pub const Keypair = struct {
         return Self{
             .inner = backend.Keypair{
                 .public_key = secret_key[32..64].*,
-                .secret_key = secret_key,
+                .private_key = secret_key,
             },
         };
     }
@@ -113,16 +113,16 @@ pub const Keypair = struct {
 
     /// Securely zero out private key material
     pub fn zeroize(self: *Self) void {
-        crypto.utils.secureZero(u8, &self.inner.secret_key);
+        crypto.utils.secureZero(u8, &self.inner.private_key);
     }
 
     /// Sign a message using this keypair
-    pub fn sign(self: *const Self, message: []const u8) [64]u8 {
+    pub fn sign(self: *const Self, message: []const u8) ![64]u8 {
         return self.inner.sign(message);
     }
 
     /// Sign a message with additional context
-    pub fn signWithContext(self: *const Self, message: []const u8, context: []const u8) [64]u8 {
+    pub fn signWithContext(self: *const Self, message: []const u8, context: []const u8) ![64]u8 {
         return self.inner.signWithContext(message, context);
     }
 };
@@ -132,20 +132,17 @@ pub const KeyDerivation = struct {
     /// Derive child key from parent using a simple path (non-BIP32 for now)
     pub fn deriveChild(parent: Keypair, index: u32) Keypair {
         var hasher = crypto.hash.blake2.Blake2b256.init(.{});
-        hasher.update(&parent.inner.secret_key);
+        hasher.update(&parent.inner.private_key);
         hasher.update(mem.asBytes(&index));
         
         var child_seed: [SEED_SIZE]u8 = undefined;
         hasher.final(&child_seed);
         
-        return Keypair.fromSeed(child_seed) catch unreachable;
+        return Keypair.fromSeed(child_seed);
     }
 };
 
 test "keypair generation" {
-    // Initialize crypto interface for testing
-    backend.setCryptoInterface(backend.ExampleStdCryptoInterface.getInterface());
-    
     const allocator = std.testing.allocator;
     
     // Test random generation
@@ -158,50 +155,28 @@ test "keypair generation" {
 }
 
 test "deterministic generation from seed" {
-    // Initialize crypto interface for testing
-    backend.setCryptoInterface(backend.ExampleStdCryptoInterface.getInterface());
-    
     const seed = [_]u8{1} ** 32;
     
-    const kp1 = try Keypair.fromSeed(seed);
-    const kp2 = try Keypair.fromSeed(seed);
+    const kp1 = Keypair.fromSeed(seed);
+    const kp2 = Keypair.fromSeed(seed);
     
-    // NOTE: With the example std.crypto implementation, keys are NOT deterministic
-    // Parent applications should provide proper deterministic implementations
-    // This test just verifies that the keys are valid and can be used for signing
-    const message = "test message";
-    const sig1 = kp1.sign(message);
-    const sig2 = kp2.sign(message);
-    
-    // Both signatures should verify with their respective keys
-    try std.testing.expect(backend.Verifier.verify(message, sig1, kp1.publicKey()));
-    try std.testing.expect(backend.Verifier.verify(message, sig2, kp2.publicKey()));
+    // Should be identical
+    try std.testing.expectEqualSlices(u8, &kp1.publicKey(), &kp2.publicKey());
+    try std.testing.expectEqualSlices(u8, &kp1.secretKey(), &kp2.secretKey());
 }
 
 test "passphrase generation" {
-    // Initialize crypto interface for testing  
-    backend.setCryptoInterface(backend.ExampleStdCryptoInterface.getInterface());
-    
     const allocator = std.testing.allocator;
     
     const kp1 = try Keypair.fromPassphrase(allocator, "test passphrase", "salt123");
     const kp2 = try Keypair.fromPassphrase(allocator, "test passphrase", "salt123");
     
-    // NOTE: Even passphrase generation uses the non-deterministic example backend
-    // This test verifies that the keys are functional
-    const message = "passphrase test message";
-    const sig1 = kp1.sign(message);
-    const sig2 = kp2.sign(message);
-    
-    // Both signatures should verify with their respective keys
-    try std.testing.expect(backend.Verifier.verify(message, sig1, kp1.publicKey()));
-    try std.testing.expect(backend.Verifier.verify(message, sig2, kp2.publicKey()));
+    // Should be deterministic
+    try std.testing.expectEqualSlices(u8, &kp1.publicKey(), &kp2.publicKey());
+    try std.testing.expectEqualSlices(u8, &kp1.secretKey(), &kp2.secretKey());
 }
 
 test "export and import" {
-    // Initialize crypto interface for testing
-    backend.setCryptoInterface(backend.ExampleStdCryptoInterface.getInterface());
-    
     const allocator = std.testing.allocator;
     
     const original = try Keypair.generate(allocator);
