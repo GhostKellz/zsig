@@ -24,7 +24,7 @@ pub const Signature = struct {
         if (hex_string.len != SIGNATURE_SIZE * 2) {
             return error.InvalidSignatureLength;
         }
-        
+
         var signature = Self{ .bytes = undefined };
         _ = try std.fmt.hexToBytes(&signature.bytes, hex_string);
         return signature;
@@ -62,11 +62,11 @@ pub fn signBytes(message: []const u8, keypair: key.Keypair) ![SIGNATURE_SIZE]u8 
 /// Create an inline signature (message + signature concatenated)
 pub fn signInline(allocator: std.mem.Allocator, message: []const u8, keypair: key.Keypair) ![]u8 {
     const signature = try sign(message, keypair);
-    
+
     const result = try allocator.alloc(u8, message.len + SIGNATURE_SIZE);
     @memcpy(result[0..message.len], message);
     @memcpy(result[message.len..], &signature.bytes);
-    
+
     return result;
 }
 
@@ -79,11 +79,11 @@ pub fn signWithContext(message: []const u8, context: []const u8, keypair: key.Ke
 /// Batch signing for multiple messages (useful for transaction batches)
 pub fn signBatch(allocator: std.mem.Allocator, messages: []const []const u8, keypair: key.Keypair) ![]Signature {
     var signatures = try allocator.alloc(Signature, messages.len);
-    
+
     for (messages, 0..) |message, i| {
         signatures[i] = try sign(message, keypair);
     }
-    
+
     return signatures;
 }
 
@@ -101,10 +101,10 @@ pub fn signChallenge(challenge: []const u8, keypair: key.Keypair) !Signature {
 
 test "basic signing" {
     const allocator = std.testing.allocator;
-    
+
     const keypair = try key.Keypair.generate(allocator);
     const message = "Hello, Zsig!";
-    
+
     const signature = try sign(message, keypair);
     try std.testing.expect(signature.bytes.len == SIGNATURE_SIZE);
 }
@@ -113,46 +113,46 @@ test "deterministic signing" {
     const seed = [_]u8{42} ** 32;
     const keypair = key.Keypair.fromSeed(seed);
     const message = "deterministic test";
-    
+
     const sig1 = try sign(message, keypair);
     const sig2 = try sign(message, keypair);
-    
+
     // Ed25519 signatures should be deterministic
     try std.testing.expectEqualSlices(u8, &sig1.bytes, &sig2.bytes);
 }
 
 test "signature formats" {
     const allocator = std.testing.allocator;
-    
+
     const keypair = try key.Keypair.generate(allocator);
     const message = "format test";
-    
+
     const signature = try sign(message, keypair);
-    
+
     // Test hex conversion
     const hex = try signature.toHex(allocator);
     defer allocator.free(hex);
-    
+
     const from_hex = try Signature.fromHex(hex);
     try std.testing.expectEqualSlices(u8, &signature.bytes, &from_hex.bytes);
-    
+
     // Test base64 conversion
     const b64 = try signature.toBase64(allocator);
     defer allocator.free(b64);
-    
+
     const from_b64 = try Signature.fromBase64(b64);
     try std.testing.expectEqualSlices(u8, &signature.bytes, &from_b64.bytes);
 }
 
 test "inline signature" {
     const allocator = std.testing.allocator;
-    
+
     const keypair = try key.Keypair.generate(allocator);
     const message = "inline test";
-    
+
     const inline_sig = try signInline(allocator, message, keypair);
     defer allocator.free(inline_sig);
-    
+
     // Should contain message + signature
     try std.testing.expect(inline_sig.len == message.len + SIGNATURE_SIZE);
     try std.testing.expectEqualSlices(u8, message, inline_sig[0..message.len]);
@@ -160,30 +160,30 @@ test "inline signature" {
 
 test "context signing" {
     const allocator = std.testing.allocator;
-    
+
     const keypair = try key.Keypair.generate(allocator);
     const message = "context test";
     const context1 = "context1";
     const context2 = "context2";
-    
+
     const sig1 = try signWithContext(message, context1, keypair);
     const sig2 = try signWithContext(message, context2, keypair);
-    
+
     // Different contexts should produce different signatures
     try std.testing.expect(!std.mem.eql(u8, &sig1.bytes, &sig2.bytes));
 }
 
 test "batch signing" {
     const allocator = std.testing.allocator;
-    
+
     const keypair = try key.Keypair.generate(allocator);
     const messages = [_][]const u8{ "msg1", "msg2", "msg3" };
-    
+
     const signatures = try signBatch(allocator, &messages, keypair);
     defer allocator.free(signatures);
-    
+
     try std.testing.expect(signatures.len == messages.len);
-    
+
     // Each signature should be valid (we'll verify in verify.zig tests)
     for (signatures) |signature| {
         try std.testing.expect(signature.bytes.len == SIGNATURE_SIZE);

@@ -82,14 +82,14 @@ fn parseArgs(args: [][:0]u8) !Args {
     const command = std.meta.stringToEnum(Command, command_str) orelse return CliError.InvalidArguments;
 
     var parsed = Args{ .command = command };
-    
+
     var i: usize = 2;
     while (i < args.len) : (i += 2) {
         if (i + 1 >= args.len) break;
-        
+
         const flag = args[i];
         const value = args[i + 1];
-        
+
         if (std.mem.eql(u8, flag, "--in") or std.mem.eql(u8, flag, "-i")) {
             parsed.input_file = value;
         } else if (std.mem.eql(u8, flag, "--out") or std.mem.eql(u8, flag, "-o")) {
@@ -123,45 +123,43 @@ fn parseArgs(args: [][:0]u8) !Args {
 fn cmdKeygen(allocator: std.mem.Allocator, args: Args) !void {
     if (args.verbose) print("Generating Ed25519 keypair...\n", .{});
 
-    const keypair = if (args.seed) |seed_str|
-        blk: {
-            if (seed_str.len != zsig.SEED_SIZE * 2) {
-                print("Error: Seed must be exactly {} hex characters\n", .{zsig.SEED_SIZE * 2});
-                return CliError.InvalidArguments;
-            }
-            var seed: [zsig.SEED_SIZE]u8 = undefined;
-            _ = std.fmt.hexToBytes(&seed, seed_str) catch {
-                print("Error: Invalid hex seed\n", .{});
-                return CliError.InvalidArguments;
-            };
-            break :blk zsig.keypairFromSeed(seed);
+    const keypair = if (args.seed) |seed_str| blk: {
+        if (seed_str.len != zsig.SEED_SIZE * 2) {
+            print("Error: Seed must be exactly {} hex characters\n", .{zsig.SEED_SIZE * 2});
+            return CliError.InvalidArguments;
         }
-    else if (args.passphrase) |passphrase|
+        var seed: [zsig.SEED_SIZE]u8 = undefined;
+        _ = std.fmt.hexToBytes(&seed, seed_str) catch {
+            print("Error: Invalid hex seed\n", .{});
+            return CliError.InvalidArguments;
+        };
+        break :blk zsig.keypairFromSeed(seed);
+    } else if (args.passphrase) |passphrase|
         try zsig.keypairFromPassphrase(allocator, passphrase, null)
     else
         try zsig.generateKeypair(allocator);
 
     // Generate output files
     const base_name = args.output_file orelse "zsig_key";
-    
+
     // Write private key file (.key)
     const key_filename = try std.fmt.allocPrint(allocator, "{s}.key", .{base_name});
     defer allocator.free(key_filename);
-    
+
     const key_bundle = try keypair.exportBundle(allocator);
     defer allocator.free(key_bundle);
-    
+
     try writeFile(key_filename, key_bundle);
-    
+
     // Write public key file (.pub)
     const pub_filename = try std.fmt.allocPrint(allocator, "{s}.pub", .{base_name});
     defer allocator.free(pub_filename);
-    
+
     const pub_hex = try keypair.publicKeyHex(allocator);
     defer allocator.free(pub_hex);
-    
+
     try writeFile(pub_filename, pub_hex);
-    
+
     if (args.verbose) {
         print("Generated keypair:\n", .{});
         print("  Private key: {s}\n", .{key_filename});
@@ -177,7 +175,7 @@ fn cmdSign(allocator: std.mem.Allocator, args: Args) !void {
         print("Error: Input file required (--in)\n", .{});
         return CliError.InvalidArguments;
     };
-    
+
     const key_file = args.key_file orelse {
         print("Error: Key file required (--key)\n", .{});
         return CliError.InvalidArguments;
@@ -203,10 +201,10 @@ fn cmdSign(allocator: std.mem.Allocator, args: Args) !void {
     if (args.inline_mode) {
         const inline_sig = try zsig.signInline(allocator, message, keypair);
         defer allocator.free(inline_sig);
-        
+
         const output_file = args.output_file orelse "signed_message";
         try writeFile(output_file, inline_sig);
-        
+
         if (args.verbose) {
             print("Inline signature written to {s}\n", .{output_file});
         } else {
@@ -225,12 +223,12 @@ fn cmdSign(allocator: std.mem.Allocator, args: Args) !void {
         };
         defer allocator.free(sig_data);
 
-        const output_file = args.output_file orelse 
+        const output_file = args.output_file orelse
             try std.fmt.allocPrint(allocator, "{s}.sig", .{input_file});
         defer if (args.output_file == null) allocator.free(output_file);
-        
+
         try writeFile(output_file, sig_data);
-        
+
         if (args.verbose) {
             print("Signature ({s}) written to {s}\n", .{ args.format, output_file });
         } else {
@@ -245,7 +243,7 @@ fn cmdVerify(allocator: std.mem.Allocator, args: Args) !void {
             print("Error: Input file required (--in)\n", .{});
             return CliError.InvalidArguments;
         };
-        
+
         const public_key_file = args.public_key_file orelse {
             print("Error: Public key file required (--pubkey)\n", .{});
             return CliError.InvalidArguments;
@@ -253,11 +251,11 @@ fn cmdVerify(allocator: std.mem.Allocator, args: Args) !void {
 
         const signed_message = try readFile(allocator, input_file);
         defer allocator.free(signed_message);
-        
+
         const public_key = try loadPublicKey(allocator, public_key_file);
-        
+
         const is_valid = zsig.verifyInline(signed_message, &public_key);
-        
+
         if (is_valid) {
             print("✓ Signature valid\n", .{});
             if (args.verbose) {
@@ -273,12 +271,12 @@ fn cmdVerify(allocator: std.mem.Allocator, args: Args) !void {
             print("Error: Input file required (--in)\n", .{});
             return CliError.InvalidArguments;
         };
-        
+
         const signature_file = args.signature_file orelse {
             print("Error: Signature file required (--sig)\n", .{});
             return CliError.InvalidArguments;
         };
-        
+
         const public_key_file = args.public_key_file orelse {
             print("Error: Public key file required (--pubkey)\n", .{});
             return CliError.InvalidArguments;
@@ -286,10 +284,10 @@ fn cmdVerify(allocator: std.mem.Allocator, args: Args) !void {
 
         const message = try readFile(allocator, input_file);
         defer allocator.free(message);
-        
+
         const signature_data = try readFile(allocator, signature_file);
         defer allocator.free(signature_data);
-        
+
         const public_key = try loadPublicKey(allocator, public_key_file);
 
         const is_valid = if (args.context) |context|
@@ -380,52 +378,52 @@ fn cmdVersion() void {
 fn readFile(allocator: std.mem.Allocator, filename: []const u8) ![]u8 {
     const file = fs.cwd().openFile(filename, .{}) catch return CliError.FileNotFound;
     defer file.close();
-    
+
     const file_size = try file.getEndPos();
     const contents = try allocator.alloc(u8, file_size);
     _ = try file.readAll(contents);
-    
+
     return contents;
 }
 
 fn writeFile(filename: []const u8, data: []const u8) !void {
     const file = fs.cwd().createFile(filename, .{}) catch return CliError.FileWriteError;
     defer file.close();
-    
+
     try file.writeAll(data);
 }
 
 fn loadKeypair(allocator: std.mem.Allocator, filename: []const u8) !zsig.Keypair {
     const contents = try readFile(allocator, filename);
     defer allocator.free(contents);
-    
+
     // Parse the key bundle format
     const private_start = "Private: ";
     const private_start_idx = std.mem.indexOf(u8, contents, private_start) orelse
         return CliError.InvalidKeyFormat;
-    
+
     const private_data_start = private_start_idx + private_start.len;
     const private_end_idx = std.mem.indexOf(u8, contents[private_data_start..], "\n") orelse
         return CliError.InvalidKeyFormat;
-    
-    const private_b64 = contents[private_data_start..private_data_start + private_end_idx];
-    
+
+    const private_b64 = contents[private_data_start .. private_data_start + private_end_idx];
+
     return zsig.Keypair.fromPrivateKeyBase64(private_b64) catch CliError.InvalidKeyFormat;
 }
 
 fn loadPublicKey(allocator: std.mem.Allocator, filename: []const u8) ![zsig.PUBLIC_KEY_SIZE]u8 {
     const contents = try readFile(allocator, filename);
     defer allocator.free(contents);
-    
+
     // Remove newlines and whitespace
     var clean_hex = std.ArrayList(u8).init(allocator);
     defer clean_hex.deinit();
-    
+
     for (contents) |char| {
         if (std.ascii.isAlphanumeric(char)) {
             try clean_hex.append(char);
         }
     }
-    
+
     return zsig.Keypair.publicKeyFromHex(clean_hex.items) catch CliError.InvalidKeyFormat;
 }

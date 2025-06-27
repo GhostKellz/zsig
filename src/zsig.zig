@@ -1,11 +1,11 @@
 //! Zsig: Cryptographic Signing Engine for Zig
-//! 
+//!
 //! A lightweight and modular cryptographic signing library designed for fast, secure,
 //! and minimalistic digital signature operations using Ed25519 signatures.
 //!
 //! ## Features
 //! - Ed25519 signing and verification
-//! - Public/private keypair generation  
+//! - Public/private keypair generation
 //! - Detached and inline signatures
 //! - Deterministic signing for audit trails
 //! - WASM and embedded-friendly
@@ -14,14 +14,14 @@
 //! ## Basic Usage
 //! ```zig
 //! const zsig = @import("zsig");
-//! 
+//!
 //! // Generate a keypair
 //! const keypair = try zsig.Keypair.generate(allocator);
-//! 
+//!
 //! // Sign a message
 //! const message = "Hello, World!";
 //! const signature = try zsig.sign(message, keypair);
-//! 
+//!
 //! // Verify the signature
 //! const is_valid = zsig.verify(message, &signature.bytes, &keypair.publicKey());
 //! ```
@@ -100,51 +100,51 @@ pub const features = struct {
 
 test "zsig integration test" {
     const allocator = std.testing.allocator;
-    
+
     // Test full signing and verification workflow
     const keypair = try generateKeypair(allocator);
     const message = "Integration test message";
-    
+
     // Test basic signing
     const signature = try signMessage(message, keypair);
     try std.testing.expect(verifySignature(message, &signature.bytes, &keypair.publicKey()));
-    
+
     // Test context signing
     const context = "test-context";
     const ctx_signature = try signWithContext(message, context, keypair);
     try std.testing.expect(verifyWithContext(message, context, &ctx_signature.bytes, &keypair.publicKey()));
-    
+
     // Test inline signing
     const inline_sig = try signInline(allocator, message, keypair);
     defer allocator.free(inline_sig);
     try std.testing.expect(verifyInline(inline_sig, &keypair.publicKey()));
-    
+
     // Test batch operations
     const messages = [_][]const u8{ "msg1", "msg2", "msg3" };
     const signatures = try signBatch(allocator, &messages, keypair);
     defer allocator.free(signatures);
-    
+
     try std.testing.expect(verify.verifyBatchSameKey(&messages, signatures, keypair.publicKey()));
 }
 
 test "deterministic operations" {
     const allocator = std.testing.allocator;
-    
+
     const seed = [_]u8{123} ** SEED_SIZE;
     const passphrase = "test passphrase for deterministic generation";
-    
+
     // Test deterministic key generation
     const kp1 = keypairFromSeed(seed);
     const kp2 = keypairFromSeed(seed);
     try std.testing.expectEqualSlices(u8, &kp1.publicKey(), &kp2.publicKey());
     try std.testing.expectEqualSlices(u8, &kp1.secretKey(), &kp2.secretKey());
-    
+
     // Test deterministic passphrase generation
     const kp3 = try keypairFromPassphrase(allocator, passphrase, "salt");
     const kp4 = try keypairFromPassphrase(allocator, passphrase, "salt");
     try std.testing.expectEqualSlices(u8, &kp3.publicKey(), &kp4.publicKey());
     try std.testing.expectEqualSlices(u8, &kp3.secretKey(), &kp4.secretKey());
-    
+
     // Test deterministic signing
     const message = "deterministic signing test";
     const sig1 = try signMessage(message, kp1);
@@ -154,24 +154,24 @@ test "deterministic operations" {
 
 test "cross-module compatibility" {
     const allocator = std.testing.allocator;
-    
+
     // Test that all modules work together correctly
     const keypair = try key.Keypair.generate(allocator);
     const message = "cross-module test";
-    
+
     // Sign with sign module
     const signature = try sign.sign(message, keypair);
-    
-    // Verify with verify module  
+
+    // Verify with verify module
     try std.testing.expect(verify.verify(message, &signature.bytes, &keypair.publicKey()));
-    
+
     // Test format conversions
     const sig_hex = try signature.toHex(allocator);
     defer allocator.free(sig_hex);
-    
+
     const pub_hex = try keypair.publicKeyHex(allocator);
     defer allocator.free(pub_hex);
-    
+
     try std.testing.expect(try verify.verifyFromHex(message, sig_hex, pub_hex));
 }
 

@@ -41,10 +41,10 @@ pub const Keypair = struct {
     pub fn fromPassphrase(allocator: std.mem.Allocator, passphrase: []const u8, salt: ?[]const u8) !Self {
         _ = allocator;
         const actual_salt = salt orelse "zsig-default-salt";
-        
+
         var seed: [SEED_SIZE]u8 = undefined;
         try crypto.pwhash.pbkdf2(&seed, passphrase, actual_salt, 100000, crypto.auth.hmac.sha2.HmacSha256);
-        
+
         return fromSeed(seed);
     }
 
@@ -53,7 +53,7 @@ pub const Keypair = struct {
         return self.inner.public_key;
     }
 
-    /// Get secret key bytes  
+    /// Get secret key bytes
     pub fn secretKey(self: *const Self) [PRIVATE_KEY_SIZE]u8 {
         return self.inner.private_key;
     }
@@ -76,26 +76,23 @@ pub const Keypair = struct {
     pub fn exportBundle(self: *const Self, allocator: std.mem.Allocator) ![]u8 {
         const private_b64 = try self.privateKeyBase64(allocator);
         defer allocator.free(private_b64);
-        
+
         const public_hex = try self.publicKeyHex(allocator);
         defer allocator.free(public_hex);
 
-        return try fmt.allocPrint(allocator, 
-            "-----BEGIN ZSIG KEYPAIR-----\n" ++
+        return try fmt.allocPrint(allocator, "-----BEGIN ZSIG KEYPAIR-----\n" ++
             "Private: {s}\n" ++
             "Public: {s}\n" ++
-            "-----END ZSIG KEYPAIR-----\n", 
-            .{ private_b64, public_hex }
-        );
+            "-----END ZSIG KEYPAIR-----\n", .{ private_b64, public_hex });
     }
 
     /// Import keypair from base64 private key
     pub fn fromPrivateKeyBase64(private_key_b64: []const u8) !Self {
         const decoder = base64.standard.Decoder;
         var secret_key: [PRIVATE_KEY_SIZE]u8 = undefined;
-        
+
         try decoder.decode(&secret_key, private_key_b64);
-        
+
         return Self{
             .inner = backend.Keypair{
                 .public_key = secret_key[32..64].*,
@@ -134,21 +131,21 @@ pub const KeyDerivation = struct {
         var hasher = crypto.hash.blake2.Blake2b256.init(.{});
         hasher.update(&parent.inner.private_key);
         hasher.update(mem.asBytes(&index));
-        
+
         var child_seed: [SEED_SIZE]u8 = undefined;
         hasher.final(&child_seed);
-        
+
         return Keypair.fromSeed(child_seed);
     }
 };
 
 test "keypair generation" {
     const allocator = std.testing.allocator;
-    
+
     // Test random generation
     const kp1 = try Keypair.generate(allocator);
     const kp2 = try Keypair.generate(allocator);
-    
+
     // Keys should be different
     try std.testing.expect(!mem.eql(u8, &kp1.publicKey(), &kp2.publicKey()));
     try std.testing.expect(!mem.eql(u8, &kp1.secretKey(), &kp2.secretKey()));
@@ -156,10 +153,10 @@ test "keypair generation" {
 
 test "deterministic generation from seed" {
     const seed = [_]u8{1} ** 32;
-    
+
     const kp1 = Keypair.fromSeed(seed);
     const kp2 = Keypair.fromSeed(seed);
-    
+
     // Should be identical
     try std.testing.expectEqualSlices(u8, &kp1.publicKey(), &kp2.publicKey());
     try std.testing.expectEqualSlices(u8, &kp1.secretKey(), &kp2.secretKey());
@@ -167,10 +164,10 @@ test "deterministic generation from seed" {
 
 test "passphrase generation" {
     const allocator = std.testing.allocator;
-    
+
     const kp1 = try Keypair.fromPassphrase(allocator, "test passphrase", "salt123");
     const kp2 = try Keypair.fromPassphrase(allocator, "test passphrase", "salt123");
-    
+
     // Should be deterministic
     try std.testing.expectEqualSlices(u8, &kp1.publicKey(), &kp2.publicKey());
     try std.testing.expectEqualSlices(u8, &kp1.secretKey(), &kp2.secretKey());
@@ -178,22 +175,22 @@ test "passphrase generation" {
 
 test "export and import" {
     const allocator = std.testing.allocator;
-    
+
     const original = try Keypair.generate(allocator);
-    
+
     // Test base64 export/import
     const private_b64 = try original.privateKeyBase64(allocator);
     defer allocator.free(private_b64);
-    
+
     const imported = try Keypair.fromPrivateKeyBase64(private_b64);
-    
+
     try std.testing.expectEqualSlices(u8, &original.publicKey(), &imported.publicKey());
     try std.testing.expectEqualSlices(u8, &original.secretKey(), &imported.secretKey());
-    
+
     // Test hex public key
     const public_hex = try original.publicKeyHex(allocator);
     defer allocator.free(public_hex);
-    
+
     const public_from_hex = try Keypair.publicKeyFromHex(public_hex);
     try std.testing.expectEqualSlices(u8, &original.publicKey(), &public_from_hex);
 }

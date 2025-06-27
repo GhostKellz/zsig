@@ -36,12 +36,12 @@
         .zcrypto = .{
             .url = "https://github.com/ghostkellz/zcrypto/archive/refs/heads/main.tar.gz",
             // Hash will be computed on first fetch
-            .hash = "1220e39c012a9a344dd939a145af8ef2549c3486b4c699194b9f6df06ad62267bf49",
+            .hash = "zcrypto-0.0.0-rgQAIzgEBADjnAEqmjRN2TmhRa-O8lScNIa0xpkZS59t",
         },
         // tokioZ - Async runtime (lazy loaded for future async operations)
         .tokioZ = .{
             .url = "https://github.com/ghostkellz/tokioZ/archive/refs/heads/main.tar.gz",
-            .hash = "12200000000000000000000000000000000000000000000000000000000000000000",
+            .hash = "TokioZ-0.0.0-DgtPReljAgAuGaoLtQCm_E-UA_7j_TAGQ8kkV-mtjz4V",
             .lazy = true,
         },
     },

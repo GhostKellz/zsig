@@ -18,14 +18,14 @@ pub fn main() !void {
     // Check if this should be handled by CLI
     const first_arg = args[1];
     const cli_commands = [_][]const u8{ "keygen", "sign", "verify", "pubkey", "help", "version" };
-    
+
     for (cli_commands) |cmd| {
         if (std.mem.eql(u8, first_arg, cmd)) {
             const cli = @import("cli.zig");
             return cli.main();
         }
     }
-    
+
     // Default behavior for unknown commands
     std.debug.print("Unknown command: {s}\n", .{first_arg});
     std.debug.print("Use 'zsig help' for available commands.\n", .{});
