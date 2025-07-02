@@ -28,6 +28,16 @@
 
 const std = @import("std");
 
+// Version and project metadata
+pub const version = "0.4.0";
+pub const info = struct {
+    pub const name = "zsig";
+    pub const description = "Cryptographic Signing Engine for Zig - GhostChain Foundation";
+    pub const author = "GhostKellz";
+    pub const license = "MIT";
+    pub const repository = "https://github.com/ghostkellz/zsig";
+};
+
 // Re-export backend system
 pub const backend = @import("zsig/backend.zig");
 
@@ -70,33 +80,6 @@ pub const verifyDetailed = verify.verifyDetailed;
 
 /// Utility functions
 pub const KeyDerivation = key.KeyDerivation;
-
-/// Version information
-pub const version = "0.1.0";
-pub const version_major = 0;
-pub const version_minor = 1;
-pub const version_patch = 0;
-
-/// Library information
-pub const info = struct {
-    pub const name = "zsig";
-    pub const description = "Cryptographic Signing Engine for Zig";
-    pub const author = "GhostKellz";
-    pub const license = "MIT";
-    pub const repository = "https://github.com/ghostkellz/zsig";
-};
-
-/// Feature flags for compile-time customization
-pub const features = struct {
-    /// Enable CLI tools
-    pub const cli = true;
-    /// Enable WASM compatibility
-    pub const wasm = true;
-    /// Enable hardware wallet support (future)
-    pub const hardware = false;
-    /// Enable multi-signature support (future)
-    pub const multisig = false;
-};
 
 test "zsig integration test" {
     const allocator = std.testing.allocator;

@@ -15,17 +15,20 @@ pub fn verify(message: []const u8, signature: []const u8, public_key: []const u8
     const pub_key_bytes: [key.PUBLIC_KEY_SIZE]u8 = public_key[0..key.PUBLIC_KEY_SIZE].*;
     const sig_bytes: [sign.SIGNATURE_SIZE]u8 = signature[0..sign.SIGNATURE_SIZE].*;
 
-    return backend.verify(message, sig_bytes, pub_key_bytes);
+    // Default to Ed25519 for backwards compatibility
+    return backend.verify(message, sig_bytes, pub_key_bytes, .ed25519);
 }
 
 /// Verify using Signature and Keypair structs
 pub fn verifySignature(message: []const u8, signature: sign.Signature, public_key: [key.PUBLIC_KEY_SIZE]u8) bool {
-    return backend.verify(message, signature.bytes, public_key);
+    // Default to Ed25519 for backwards compatibility
+    return backend.verify(message, signature.bytes, public_key, .ed25519);
 }
 
-/// Verify using a keypair (uses public key part)
+/// Verify using a keypair (uses public key part and algorithm)
 pub fn verifyWithKeypair(message: []const u8, signature: sign.Signature, keypair: key.Keypair) bool {
-    return backend.verify(message, signature.bytes, keypair.publicKey());
+    // Use the algorithm from the keypair
+    return backend.verifyWithKeypairAlgorithm(message, signature.bytes, keypair);
 }
 
 /// Verify an inline signature (message + signature concatenated)

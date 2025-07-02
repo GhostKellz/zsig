@@ -25,15 +25,27 @@ pub const Keypair = struct {
 
     const Self = @This();
 
-    /// Generate a new random keypair using the system's CSPRNG
+/// Generate a new random keypair using the system's CSPRNG
     pub fn generate(allocator: std.mem.Allocator) !Self {
-        const inner = try backend.Keypair.generate(allocator);
+        const inner = try backend.generateKeypairDefault(allocator);
+        return Self{ .inner = inner };
+    }
+
+    /// Generate a keypair with specific algorithm
+    pub fn generateWithAlgorithm(allocator: std.mem.Allocator, algo: backend.Algorithm) !Self {
+        const inner = try backend.generateKeypair(allocator, algo);
         return Self{ .inner = inner };
     }
 
     /// Generate a keypair from a 32-byte seed (deterministic)
     pub fn fromSeed(seed: [SEED_SIZE]u8) Self {
-        const inner = backend.Keypair.fromSeed(seed);
+        const inner = backend.keypairFromSeedDefault(seed);
+        return Self{ .inner = inner };
+    }
+
+    /// Generate a keypair from seed with specific algorithm
+    pub fn fromSeedWithAlgorithm(seed: [SEED_SIZE]u8, algo: backend.Algorithm) Self {
+        const inner = backend.keypairFromSeed(seed, algo);
         return Self{ .inner = inner };
     }
 
@@ -46,6 +58,22 @@ pub const Keypair = struct {
         try crypto.pwhash.pbkdf2(&seed, passphrase, actual_salt, 100000, crypto.auth.hmac.sha2.HmacSha256);
 
         return fromSeed(seed);
+    }
+
+    /// Generate a keypair from passphrase with specific algorithm
+    pub fn fromPassphraseWithAlgorithm(allocator: std.mem.Allocator, passphrase: []const u8, salt: ?[]const u8, algo: backend.Algorithm) !Self {
+        _ = allocator;
+        const actual_salt = salt orelse "zsig-default-salt";
+
+        var seed: [SEED_SIZE]u8 = undefined;
+        try crypto.pwhash.pbkdf2(&seed, passphrase, actual_salt, 100000, crypto.auth.hmac.sha2.HmacSha256);
+
+        return fromSeedWithAlgorithm(seed, algo);
+    }
+
+    /// Get the algorithm used by this keypair
+    pub fn algorithm(self: Self) backend.Algorithm {
+        return self.inner.algorithm;
     }
 
     /// Get public key bytes
@@ -97,6 +125,7 @@ pub const Keypair = struct {
             .inner = backend.Keypair{
                 .public_key = secret_key[32..64].*,
                 .private_key = secret_key,
+                .algorithm = .ed25519, // Default to Ed25519 for backwards compatibility
             },
         };
     }

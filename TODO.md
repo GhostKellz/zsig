@@ -1,7 +1,256 @@
-# Zsig v0.3.0 TODO List
+# Zsig v0.4.0 TODO List
 
-## 🎯 **Version 0.3.0 Goals**
-Complete zcrypto v0.3.0 integration and prepare for full GhostChain ecosystem deployment.
+## 🎯 **Version 0.4.0 Goals**
+Transform zsig into the **production-ready foundational cryptographic layer** for the entire GhostChain ecosystem (ghostd, walletd, realid, CNS, ZVM).
+
+**Context**: With ghostd and walletd now implemented, zsig needs to become the rock-solid cryptographic foundation that all other modules depend on.
+
+---
+
+## 🔥 **Critical Production Features (P0)**
+
+### JWT-Style Token System
+- [ ] **Custom Ghost Token Format**: Design secure token standard for the ecosystem
+  ```zig
+  pub const GhostToken = struct {
+      header: TokenHeader,      // Algorithm, type, etc.
+      payload: TokenPayload,    // Claims, expiration, issuer
+      signature: [64]u8,        // Ed25519/secp256k1 signature
+      
+      pub fn create(claims: TokenPayload, keypair: Keypair, algorithm: Algorithm) !GhostToken;
+      pub fn verify(token: []const u8, public_key: [32]u8) !TokenPayload;
+      pub fn refresh(token: GhostToken, new_expiry: i64) !GhostToken;
+  };
+  ```
+
+- [ ] **JWT Compatibility Layer**: Support standard JWT for interoperability
+  ```zig
+  pub const JwtCompat = struct {
+      pub fn createJWT(claims: std.json.Value, keypair: Keypair) ![]u8;
+      pub fn verifyJWT(jwt_string: []const u8, public_key: [32]u8) !std.json.Value;
+      pub fn convertGhostToJWT(ghost_token: GhostToken) ![]u8;
+  };
+  ```
+
+### Message Authentication & Integrity
+- [ ] **Universal Message Digesting**: Core validation system for all modules
+  ```zig
+  pub const MessageAuth = struct {
+      pub fn createDigest(message: []const u8, context: []const u8) [32]u8;
+      pub fn validateMessage(message: []const u8, digest: [32]u8, context: []const u8) bool;
+      pub fn signedMessage(message: []const u8, keypair: Keypair, timestamp: i64) !SignedMessage;
+      pub fn verifyTimestamp(signed_msg: SignedMessage, max_age_seconds: i64) !bool;
+  };
+  ```
+
+### High-Performance Multi-Algorithm Support
+- [ ] **Complete secp256k1 Implementation**: For Bitcoin/Ethereum compatibility
+- [ ] **secp256r1 (P-256) Support**: For enterprise/government standards
+- [ ] **Performance-Optimized Batch Operations**: For high-throughput applications
+  ```zig
+  pub fn batchSignEd25519(messages: []const []const u8, keypair: Keypair) ![]Signature;
+  pub fn batchVerifyMixed(operations: []const VerifyOp) ![]bool; // Mixed algorithms
+  ```
+
+---
+
+## 🛡️ **Production Security & Hardening (P0)**
+
+### Secure Memory Management
+- [ ] **Secure Key Storage**: Memory protection for sensitive data
+  ```zig
+  pub const SecureKeypair = struct {
+      inner: *align(std.mem.page_size) [96]u8, // mlock'd memory
+      pub fn init(allocator: std.mem.Allocator, seed: [32]u8) !SecureKeypair;
+      pub fn deinit(self: *SecureKeypair) void; // Secure zeroing + munlock
+  };
+  ```
+
+- [ ] **Side-Channel Resistance**: Constant-time operations
+- [ ] **Memory Sanitization**: Automatic secure clearing of sensitive data
+- [ ] **Stack Protection**: Guard against buffer overflows
+
+### Enterprise Authentication Features  
+- [ ] **Multi-Factor Token Support**: Hardware token integration
+  ```zig
+  pub const MFAToken = struct {
+      primary_signature: Signature,    // Main key signature
+      mfa_proof: [32]u8,              // Hardware token proof
+      timestamp: i64,                  // Anti-replay protection
+      nonce: [16]u8,                   // Additional entropy
+  };
+  ```
+
+- [ ] **Role-Based Access Control**: Token-based permissions
+- [ ] **Audit Trail Integration**: Cryptographic logging
+- [ ] **Key Rotation Support**: Seamless key updates
+
+---
+
+## 🏗️ **Ecosystem Integration (P1)**
+
+### Core Module Interfaces
+- [ ] **ghostd Integration Interface**: 
+  ```zig
+  pub const GhostdAuth = struct {
+      pub fn authenticateNode(node_id: []const u8, challenge: [32]u8) !NodeToken;
+      pub fn validatePeerSignature(peer_msg: []const u8, signature: Signature, peer_key: [32]u8) bool;
+      pub fn createConsensusProof(block_data: []const u8, validator_key: Keypair) !ConsensusProof;
+  };
+  ```
+
+- [ ] **walletd Integration Interface**:
+  ```zig
+  pub const WalletdAuth = struct {
+      pub fn signTransaction(tx_data: []const u8, wallet_key: Keypair) !TransactionSignature;
+      pub fn createWalletToken(wallet_id: []const u8, permissions: WalletPermissions) !WalletToken;
+      pub fn validateTransactionBatch(transactions: []const Transaction) ![]bool;
+  };
+  ```
+
+- [ ] **realid Integration Interface**:
+  ```zig
+  pub const RealidAuth = struct {
+      pub fn createIdentityProof(identity_data: []const u8, master_key: Keypair) !IdentityProof;
+      pub fn verifyIdentityChain(proof_chain: []const IdentityProof) !bool;
+      pub fn createDelegatedAuth(identity: IdentityProof, delegate_key: [32]u8) !DelegationToken;
+  };
+  ```
+
+### Cross-Module Token Exchange
+- [ ] **Universal Token Format**: Standardized across all modules
+- [ ] **Token Translation Layer**: Convert between module-specific formats
+- [ ] **Federated Authentication**: Single sign-on across ecosystem
+
+---
+
+## ⚡ **Performance & Scalability (P1)**
+
+### High-Throughput Operations
+- [ ] **SIMD Optimizations**: Vector instructions for batch operations
+- [ ] **Memory Pool Management**: Reduce allocation overhead
+- [ ] **Lock-Free Data Structures**: For concurrent operations
+- [ ] **GPU Acceleration**: CUDA/OpenCL for massive batch processing
+
+### Benchmarking & Monitoring
+- [ ] **Performance Metrics**: Built-in profiling
+  ```zig
+  pub const Metrics = struct {
+      signatures_per_second: u64,
+      verifications_per_second: u64,
+      memory_usage_bytes: usize,
+      avg_latency_ns: u64,
+  };
+  ```
+
+- [ ] **Load Testing Framework**: Stress testing capabilities
+- [ ] **Performance Regression Detection**: Automated benchmarks
+
+---
+
+## 🔧 **Developer Experience (P2)**
+
+### Enhanced CLI Tools
+- [ ] **Token Management CLI**:
+  ```bash
+  zsig token create --claims '{"user":"alice","role":"admin"}' --key admin.key
+  zsig token verify --token <token> --pubkey admin.pub
+  zsig token refresh --token <token> --extend 3600 --key refresh.key
+  ```
+
+- [ ] **Multi-Module Integration CLI**:
+  ```bash
+  zsig ghostd sign-consensus --block-data block.json --validator-key val.key
+  zsig walletd sign-tx --transaction tx.json --wallet-key wallet.key
+  zsig realid create-proof --identity id.json --master-key master.key
+  ```
+
+### SDK & Language Bindings
+- [ ] **C FFI Interface**: For integration with other languages
+- [ ] **WebAssembly Module**: Browser-compatible crypto operations
+- [ ] **Python Bindings**: For data science and automation
+- [ ] **Rust FFI**: For performance-critical integrations
+
+---
+
+## 📊 **Enterprise Features (P2)**
+
+### Compliance & Auditing
+- [ ] **FIPS 140-2 Compliance**: Government-grade security standards
+- [ ] **Cryptographic Audit Logs**: Tamper-proof operation logs
+- [ ] **Certificate Management**: X.509 certificate integration
+- [ ] **HSM Integration**: Hardware Security Module support
+
+### Deployment & Operations
+- [ ] **Docker Images**: Production-ready containers
+- [ ] **Kubernetes Operators**: Cloud-native deployment
+- [ ] **Monitoring Integration**: Prometheus/Grafana metrics
+- [ ] **Health Check Endpoints**: Service monitoring
+
+---
+
+## 🌐 **Advanced Cryptography (P3)**
+
+### Next-Generation Features
+- [ ] **Post-Quantum Preparation**: Quantum-resistant signatures
+- [ ] **Zero-Knowledge Proofs**: Privacy-preserving authentication
+- [ ] **Threshold Signatures**: Multi-party signing schemes
+- [ ] **Ring Signatures**: Anonymous authentication
+
+### Research & Innovation
+- [ ] **Homomorphic Encryption**: Computation on encrypted data
+- [ ] **Secure Multi-Party Computation**: Collaborative protocols
+- [ ] **Blockchain Integration**: Direct smart contract interaction
+
+---
+
+## 🎯 **v0.4.0 Sprint Plan**
+
+### Phase 1: Foundation (Weeks 1-2)
+1. **Token System Implementation** (JWT + Custom Ghost format)
+2. **Message Authentication System** (Universal digesting/validation)
+3. **Security Hardening** (Secure memory, constant-time ops)
+
+### Phase 2: Integration (Weeks 3-4) 
+1. **ghostd Integration Interface** (Node auth, consensus proofs)
+2. **walletd Integration Interface** (Transaction signing, wallet tokens)
+3. **realid Integration Interface** (Identity proofs, delegation)
+
+### Phase 3: Performance (Weeks 5-6)
+1. **Multi-Algorithm Optimization** (secp256k1, secp256r1)
+2. **Batch Operations** (High-throughput processing)
+3. **Performance Testing** (Benchmarks, stress tests)
+
+### Phase 4: Polish (Weeks 7-8)
+1. **CLI Enhancement** (Token management, module integration)
+2. **Documentation** (API docs, integration guides)
+3. **Release Preparation** (Testing, packaging, deployment)
+
+---
+
+## 💡 **Success Metrics for v0.4.0**
+
+### Performance Targets
+- **Token Operations**: >50k tokens/second creation/verification
+- **Batch Signing**: >100k signatures/second (Ed25519)
+- **Memory Usage**: <10MB for high-throughput operations
+- **Latency**: <100μs for single token operations
+
+### Integration Metrics  
+- **Module Coverage**: 100% integration with ghostd, walletd, realid
+- **Token Compatibility**: Full JWT standard compliance
+- **Security Standards**: Pass security audit and penetration testing
+
+### Ecosystem Impact
+- **Developer Experience**: <30 minutes to integrate zsig into new projects
+- **Documentation**: Complete API reference and integration examples
+- **Community**: Active developer community with examples and tutorials
+
+---
+
+**Target Release**: Q4 2025  
+**Version**: 0.4.0  
+**Status**: Foundation for Production GhostChain Ecosystem
 
 ---
 
