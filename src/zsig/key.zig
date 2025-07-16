@@ -27,7 +27,7 @@ pub const Keypair = struct {
 
 /// Generate a new random keypair using the system's CSPRNG
     pub fn generate(allocator: std.mem.Allocator) !Self {
-        const inner = try backend.generateKeypairDefault(allocator);
+        const inner = try backend.generateKeypair(allocator, .ed25519);
         return Self{ .inner = inner };
     }
 
@@ -39,7 +39,7 @@ pub const Keypair = struct {
 
     /// Generate a keypair from a 32-byte seed (deterministic)
     pub fn fromSeed(seed: [SEED_SIZE]u8) Self {
-        const inner = backend.keypairFromSeedDefault(seed);
+        const inner = backend.keypairFromSeed(seed, .ed25519);
         return Self{ .inner = inner };
     }
 
@@ -82,21 +82,21 @@ pub const Keypair = struct {
     }
 
     /// Get secret key bytes
-    pub fn secretKey(self: *const Self) [PRIVATE_KEY_SIZE]u8 {
-        return self.inner.private_key;
+    pub fn secretKey(self: *const Self) [32]u8 {
+        return self.inner.secret_key;
     }
 
     /// Export public key as hex string
     pub fn publicKeyHex(self: *const Self, allocator: std.mem.Allocator) ![]u8 {
-        return try fmt.allocPrint(allocator, "{}", .{fmt.fmtSliceHexLower(&self.inner.public_key)});
+        return try fmt.allocPrint(allocator, "{s}", .{fmt.bytesToHex(&self.inner.public_key, .lower)});
     }
 
     /// Export private key as base64 (includes both private and public key)
     pub fn privateKeyBase64(self: *const Self, allocator: std.mem.Allocator) ![]u8 {
         const encoder = base64.standard.Encoder;
-        const encoded_len = encoder.calcSize(PRIVATE_KEY_SIZE);
+        const encoded_len = encoder.calcSize(32);
         const result = try allocator.alloc(u8, encoded_len);
-        _ = encoder.encode(result, &self.inner.private_key);
+        _ = encoder.encode(result, &self.inner.secret_key);
         return result;
     }
 
@@ -117,17 +117,12 @@ pub const Keypair = struct {
     /// Import keypair from base64 private key
     pub fn fromPrivateKeyBase64(private_key_b64: []const u8) !Self {
         const decoder = base64.standard.Decoder;
-        var secret_key: [PRIVATE_KEY_SIZE]u8 = undefined;
+        var secret_key: [32]u8 = undefined;
 
         try decoder.decode(&secret_key, private_key_b64);
 
-        return Self{
-            .inner = backend.Keypair{
-                .public_key = secret_key[32..64].*,
-                .private_key = secret_key,
-                .algorithm = .ed25519, // Default to Ed25519 for backwards compatibility
-            },
-        };
+        // Reconstruct the keypair properly from the secret key
+        return fromSeed(secret_key);
     }
 
     /// Import public key from hex string
@@ -137,9 +132,93 @@ pub const Keypair = struct {
         return public_key;
     }
 
+    /// Export private key in PEM format (PKCS#8)
+    pub fn exportPEM(self: *const Self, allocator: std.mem.Allocator) ![]u8 {
+        // Create ASN.1 DER structure for Ed25519 private key
+        // This is a simplified implementation - production would use proper ASN.1 encoding
+        
+        // Ed25519 private key OID: 1.3.101.112
+        const ed25519_oid = [_]u8{0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20};
+        
+        // Build DER structure: SEQUENCE { version, algorithm, privateKey }
+        var der_data = std.ArrayList(u8).init(allocator);
+        defer der_data.deinit();
+        
+        try der_data.appendSlice(&ed25519_oid);
+        try der_data.appendSlice(&self.inner.secret_key);
+        
+        // Base64 encode the DER data
+        const encoder = base64.standard.Encoder;
+        const encoded_len = encoder.calcSize(der_data.items.len);
+        const encoded_data = try allocator.alloc(u8, encoded_len);
+        defer allocator.free(encoded_data);
+        _ = encoder.encode(encoded_data, der_data.items);
+        
+        // Format as PEM
+        return try fmt.allocPrint(allocator,
+            "-----BEGIN PRIVATE KEY-----\n" ++
+            "{s}\n" ++
+            "-----END PRIVATE KEY-----\n", .{encoded_data});
+    }
+    
+    /// Export public key in PEM format (X.509 SubjectPublicKeyInfo)
+    pub fn exportPublicKeyPEM(self: *const Self, allocator: std.mem.Allocator) ![]u8 {
+        // Create ASN.1 DER structure for Ed25519 public key
+        // SubjectPublicKeyInfo for Ed25519
+        const ed25519_spki_header = [_]u8{0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x03, 0x21, 0x00};
+        
+        var der_data = std.ArrayList(u8).init(allocator);
+        defer der_data.deinit();
+        
+        try der_data.appendSlice(&ed25519_spki_header);
+        try der_data.appendSlice(&self.inner.public_key);
+        
+        // Base64 encode
+        const encoder = base64.standard.Encoder;
+        const encoded_len = encoder.calcSize(der_data.items.len);
+        const encoded_data = try allocator.alloc(u8, encoded_len);
+        defer allocator.free(encoded_data);
+        _ = encoder.encode(encoded_data, der_data.items);
+        
+        return try fmt.allocPrint(allocator,
+            "-----BEGIN PUBLIC KEY-----\n" ++
+            "{s}\n" ++
+            "-----END PUBLIC KEY-----\n", .{encoded_data});
+    }
+    
+    /// Import private key from PEM format
+    pub fn importPEM(allocator: std.mem.Allocator, pem_data: []const u8) !Self {
+        // Extract base64 data between PEM headers
+        const begin_marker = "-----BEGIN PRIVATE KEY-----";
+        const end_marker = "-----END PRIVATE KEY-----";
+        
+        const start_pos = mem.indexOf(u8, pem_data, begin_marker) orelse return error.InvalidPEMFormat;
+        const end_pos = mem.indexOf(u8, pem_data, end_marker) orelse return error.InvalidPEMFormat;
+        
+        const b64_start = start_pos + begin_marker.len;
+        const b64_data = mem.trim(u8, pem_data[b64_start..end_pos], " \n\r\t");
+        
+        // Decode base64
+        const decoder = base64.standard.Decoder;
+        const der_data = try allocator.alloc(u8, try decoder.calcSizeForSlice(b64_data));
+        defer allocator.free(der_data);
+        
+        try decoder.decode(der_data, b64_data);
+        
+        // Extract private key from DER structure (simplified)
+        // In production, would use proper ASN.1 parser
+        if (der_data.len < 48) return error.InvalidDERStructure;
+        
+        // Extract the 32-byte private key (last 32 bytes of the structure)
+        const private_key_offset = der_data.len - 32;
+        const private_key: [32]u8 = der_data[private_key_offset..][0..32].*;
+        
+        return fromSeed(private_key);
+    }
+
     /// Securely zero out private key material
     pub fn zeroize(self: *Self) void {
-        crypto.utils.secureZero(u8, &self.inner.private_key);
+        crypto.utils.secureZero(u8, &self.inner.secret_key);
     }
 
     /// Sign a message using this keypair

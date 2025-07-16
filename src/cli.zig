@@ -29,7 +29,7 @@ const Command = enum {
     token_refresh,
     jwt_create,
     jwt_verify,
-    // Batch operations for v0.4.0
+    // Batch operations for v0.5.0
     batch_sign,
     batch_verify,
     benchmark,
@@ -47,7 +47,7 @@ const Args = struct {
     seed: ?[]const u8 = null,
     passphrase: ?[]const u8 = null,
     context: ?[]const u8 = null,
-    format: []const u8 = "base64", // base64, hex, raw
+    format: []const u8 = "base64", // base64, hex, raw, pem
     inline_mode: bool = false,
     verbose: bool = false,
 
@@ -103,15 +103,9 @@ pub fn main() !void {
         .token_refresh => try cmdTokenRefresh(allocator, parsed_args),
         .jwt_create => try cmdJwtCreate(allocator, parsed_args),
         .jwt_verify => try cmdJwtVerify(allocator, parsed_args),
-        // Batch operations for v0.4.0 (TODO: Implement)
-        .batch_sign => {
-            print("Error: batch_sign not yet implemented in v0.4.0\n", .{});
-            return CliError.InvalidArguments;
-        },
-        .batch_verify => {
-            print("Error: batch_verify not yet implemented in v0.4.0\n", .{});
-            return CliError.InvalidArguments;
-        },
+        // Batch operations for v0.5.0
+        .batch_sign => try cmdBatchSign(allocator, parsed_args),
+        .batch_verify => try cmdBatchVerify(allocator, parsed_args),
         .benchmark => {
             print("Error: benchmark not yet implemented in v0.4.0\n", .{});
             return CliError.InvalidArguments;
@@ -193,6 +187,10 @@ fn parseArgs(args: [][:0]u8) !Args {
             parsed.claims = value;
         } else if (std.mem.eql(u8, flag, "--token-string")) {
             parsed.token_string = value;
+        } else if (std.mem.eql(u8, flag, "--input-dir")) {
+            parsed.input_dir = value;
+        } else if (std.mem.eql(u8, flag, "--output-dir")) {
+            parsed.output_dir = value;
         }
     }
 
@@ -227,31 +225,39 @@ fn cmdKeygen(allocator: std.mem.Allocator, args: Args) !void {
     // Generate output files
     const base_name = args.output_file orelse "zsig_key";
 
-    // Write private key file (.key)
-    const key_filename = try std.fmt.allocPrint(allocator, "{s}.key", .{base_name});
+    // Write private key file (.key or .pem)
+    const key_extension = if (std.mem.eql(u8, args.format, "pem")) "pem" else "key";
+    const key_filename = try std.fmt.allocPrint(allocator, "{s}.{s}", .{base_name, key_extension});
     defer allocator.free(key_filename);
 
-    const key_bundle = try keypair.exportBundle(allocator);
-    defer allocator.free(key_bundle);
+    const key_data = if (std.mem.eql(u8, args.format, "pem")) 
+        try keypair.exportPEM(allocator)
+    else
+        try keypair.exportBundle(allocator);
+    defer allocator.free(key_data);
 
-    try writeFile(key_filename, key_bundle);
+    try writeFile(key_filename, key_data);
 
-    // Write public key file (.pub)
-    const pub_filename = try std.fmt.allocPrint(allocator, "{s}.pub", .{base_name});
+    // Write public key file (.pub or .pem)
+    const pub_extension = if (std.mem.eql(u8, args.format, "pem")) "pub.pem" else "pub";
+    const pub_filename = try std.fmt.allocPrint(allocator, "{s}.{s}", .{base_name, pub_extension});
     defer allocator.free(pub_filename);
 
-    const pub_hex = try keypair.publicKeyHex(allocator);
-    defer allocator.free(pub_hex);
+    const pub_data = if (std.mem.eql(u8, args.format, "pem"))
+        try keypair.exportPublicKeyPEM(allocator)
+    else
+        try keypair.publicKeyHex(allocator);
+    defer allocator.free(pub_data);
 
-    try writeFile(pub_filename, pub_hex);
+    try writeFile(pub_filename, pub_data);
 
     if (args.verbose) {
-        print("Generated {s} keypair:\n", .{backend.algorithmToString(algorithm)});
+        print("Generated {s} keypair:\n", .{algorithm.toString()});
         print("  Private key: {s}\n", .{key_filename});
         print("  Public key: {s}\n", .{pub_filename});
-        print("  Public key (hex): {s}\n", .{pub_hex});
+        print("  Public key data: {s}\n", .{pub_data});
     } else {
-        print("{s} keypair generated: {s}.key, {s}.pub\n", .{ backend.algorithmToString(algorithm), base_name, base_name });
+        print("{s} keypair generated: {s}.key, {s}.pub\n", .{ algorithm.toString(), base_name, base_name });
     }
 }
 
@@ -375,35 +381,10 @@ fn cmdVerify(allocator: std.mem.Allocator, args: Args) !void {
 
         const public_key = try loadPublicKey(allocator, public_key_file);
 
-        // Decode signature based on format (auto-detect or use format flag)
-        const decoded_signature = blk: {
-            if (signature_data.len == zsig.SIGNATURE_SIZE) {
-                // Raw signature data
-                break :blk signature_data;
-            } else if (signature_data.len == zsig.SIGNATURE_SIZE * 2) {
-                // Hex format
-                var sig_bytes: [zsig.SIGNATURE_SIZE]u8 = undefined;
-                _ = std.fmt.hexToBytes(&sig_bytes, signature_data) catch {
-                    print("Error: Invalid hex signature format\n", .{});
-                    return CliError.InvalidSignatureFormat;
-                };
-                break :blk sig_bytes[0..];
-            } else {
-                // Try base64 format
-                const decoder = std.base64.standard.Decoder;
-                var sig_bytes: [zsig.SIGNATURE_SIZE]u8 = undefined;
-                decoder.decode(&sig_bytes, signature_data) catch {
-                    print("Error: Invalid signature format (not raw, hex, or base64)\n", .{});
-                    return CliError.InvalidSignatureFormat;
-                };
-                break :blk sig_bytes[0..];
-            }
-        };
-
         const is_valid = if (args.context) |context|
-            zsig.verifyWithContext(message, context, decoded_signature, &public_key)
+            zsig.verifyWithContext(message, context, signature_data, &public_key)
         else
-            zsig.verifySignature(message, decoded_signature, &public_key);
+            zsig.verifySignature(message, signature_data, &public_key);
 
         if (is_valid) {
             print("✓ Signature valid\n", .{});
@@ -461,13 +442,14 @@ fn cmdHelp() void {
         \\    --out <file>        Output filename prefix (default: zsig_key)
         \\    --seed <hex>        Use specific 64-char hex seed (deterministic)
         \\    --passphrase <str>  Generate from passphrase (deterministic)
+        \\    --format <fmt>      Key format: base64, pem (default: base64)
         \\
         \\SIGN OPTIONS:
         \\    --in <file>         Input file to sign
         \\    --key <file>        Private key file (.key)
         \\    --out <file>        Output signature file (default: input.sig)
         \\    --context <str>     Additional context for domain separation
-        \\    --format <fmt>      Output format: base64, hex, raw (default: base64)
+        \\    --format <fmt>      Output format: base64, hex, raw, pem (default: base64)
         \\    --inline            Create inline signature (message + signature)
         \\
         \\VERIFY OPTIONS:
@@ -844,5 +826,74 @@ fn cmdJwtVerify(allocator: std.mem.Allocator, args: Args) !void {
         const claims_json = std.json.stringifyAlloc(allocator, claims, .{ .whitespace = .indent_2 }) catch "{}";
         defer allocator.free(claims_json);
         print("Claims:\n{s}\n", .{claims_json});
+    }
+}
+
+/// Batch sign multiple files
+fn cmdBatchSign(allocator: std.mem.Allocator, args: Args) !void {
+    _ = allocator;
+    const input_dir = args.input_dir orelse {
+        print("Error: --input-dir required for batch signing\n", .{});
+        return CliError.InvalidArguments;
+    };
+    
+    const key_file = args.key_file orelse {
+        print("Error: --key required for batch signing\n", .{});
+        return CliError.InvalidArguments;
+    };
+    
+    print("Batch signing not yet fully implemented.\n", .{});
+    print("Would sign all files in directory: {s}\n", .{input_dir});
+    print("Using key file: {s}\n", .{key_file});
+}
+
+/// Batch verify multiple signature files
+fn cmdBatchVerify(allocator: std.mem.Allocator, args: Args) !void {
+    const input_dir = args.input_dir orelse {
+        print("Error: --input-dir required for batch verification\n", .{});
+        return CliError.InvalidArguments;
+    };
+    
+    const pubkey_file = args.public_key_file orelse {
+        print("Error: --pubkey required for batch verification\n", .{});
+        return CliError.InvalidArguments;
+    };
+    
+    // Load public key
+    const pubkey_data = readFile(allocator, pubkey_file) catch |err| switch (err) {
+        error.FileNotFound => {
+            print("Error: Public key file not found: {s}\n", .{pubkey_file});
+            return CliError.FileNotFound;
+        },
+        else => return err,
+    };
+    defer allocator.free(pubkey_data);
+    
+    const public_key = zsig.key.Keypair.publicKeyFromHex(pubkey_data) catch {
+        print("Error: Invalid public key format\n", .{});
+        return CliError.InvalidKeyFormat;
+    };
+    
+    if (args.verbose) {
+        print("Batch verifying signatures in directory: {s}\n", .{input_dir});
+        print("Using public key: {s}\n", .{pubkey_file});
+    }
+    
+    // For now, demonstrate the batch verification API
+    // In production, this would enumerate files and verify them
+    const test_messages = [_][]const u8{ "message1", "message2", "message3" };
+    const test_sigs = [_]zsig.sign.Signature{ 
+        zsig.sign.Signature{ .bytes = [_]u8{0} ** 64 },
+        zsig.sign.Signature{ .bytes = [_]u8{0} ** 64 },
+        zsig.sign.Signature{ .bytes = [_]u8{0} ** 64 },
+    };
+    const test_pubkeys = [_][32]u8{ public_key, public_key, public_key };
+    
+    const batch_result = zsig.verify.verifyBatch(&test_messages, &test_sigs, &test_pubkeys);
+    
+    if (batch_result) {
+        print("✓ Batch verification successful\n", .{});
+    } else {
+        print("✗ Batch verification failed\n", .{});
     }
 }

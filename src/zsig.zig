@@ -29,7 +29,7 @@
 const std = @import("std");
 
 // Version and project metadata
-pub const version = "0.4.0";
+pub const version = "0.5.0";
 pub const info = struct {
     pub const name = "zsig";
     pub const description = "Cryptographic Signing Engine for Zig - GhostChain Foundation";
@@ -160,13 +160,7 @@ test "cross-module compatibility" {
 
 /// Advanced printing function (keeping for compatibility)
 pub fn advancedPrint() !void {
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
-
-    try stdout.print("Zsig v{s} - Cryptographic Signing Engine for Zig\n", .{version});
-    try stdout.print("Features: Ed25519 signing, verification, key generation\n", .{});
-    try stdout.print("Run `zig build test` to run the test suite.\n", .{});
-
-    try bw.flush();
+    std.debug.print("Zsig v{s} - Cryptographic Signing Engine for Zig\n", .{version});
+    std.debug.print("Features: Ed25519 signing, verification, key generation\n", .{});
+    std.debug.print("Run `zig build test` to run the test suite.\n", .{});
 }

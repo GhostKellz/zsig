@@ -18,12 +18,12 @@ pub fn build(b: *std.Build) void {
     // set a preferred release mode, allowing the user to decide how to optimize.
     const optimize = b.standardOptimizeOption(.{});
 
-    // Get dependencies
-    const zcrypto_dep = b.dependency("zcrypto", .{
-        .target = target,
-        .optimize = optimize,
-    });
-    const zcrypto_mod = zcrypto_dep.module("zcrypto");
+    // Get dependencies (zsync is lazy-loaded)
+    // const zsync_dep = b.dependency("zsync", .{
+    //     .target = target,
+    //     .optimize = optimize,
+    // });
+    // const zsync_mod = zsync_dep.module("zsync");
 
     // This creates a module, which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
@@ -43,9 +43,8 @@ pub fn build(b: *std.Build) void {
         // Later on we'll use this module as the root module of a test executable
         // which requires us to specify a target.
         .target = target,
-        .imports = &.{
-            .{ .name = "zcrypto", .module = zcrypto_mod },
-        },
+        // No external dependencies for pure Zig implementation
+        .imports = &.{},
     });
 
     // Here we define an executable. An executable needs to have a root module
@@ -86,7 +85,7 @@ pub fn build(b: *std.Build) void {
                 // can be extremely useful in case of collisions (which can happen
                 // importing modules from different packages).
                 .{ .name = "zsig", .module = mod },
-                .{ .name = "zcrypto", .module = zcrypto_mod },
+                // No external crypto dependencies in v0.5.0
             },
         }),
     });

@@ -16,7 +16,7 @@ pub const Signature = struct {
 
     /// Convert signature to hex string
     pub fn toHex(self: *const Self, allocator: std.mem.Allocator) ![]u8 {
-        return try std.fmt.allocPrint(allocator, "{}", .{std.fmt.fmtSliceHexLower(&self.bytes)});
+        return try std.fmt.allocPrint(allocator, "{s}", .{std.fmt.bytesToHex(&self.bytes, .lower)});
     }
 
     /// Parse signature from hex string

@@ -213,7 +213,7 @@ pub const ExtendedSignature = struct {
             .ed25519, .hybrid_x25519_ml_kem => &self.ed25519_sig.?,
             .ml_dsa_65 => &self.ml_dsa_sig.?,
         };
-        return std.fmt.allocPrint(allocator, "{}", .{std.fmt.fmtSliceHexLower(sig_bytes)});
+        return std.fmt.allocPrint(allocator, "{s}", .{std.fmt.bytesToHex(sig_bytes, .lower)});
     }
     
     pub fn toBase64(self: ExtendedSignature, allocator: std.mem.Allocator) ![]u8 {

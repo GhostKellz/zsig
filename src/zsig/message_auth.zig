@@ -23,7 +23,7 @@ pub const SignedMessage = struct {
             std.base64.standard.Encoder.encode(allocator, &self.signature) catch return error.EncodingError,
             self.timestamp,
             self.context,
-            std.fmt.fmtSliceHexLower(&self.public_key),
+            std.fmt.bytesToHex(&self.public_key, .lower),
         });
     }
     

@@ -57,32 +57,98 @@ pub fn extractSignature(signed_message: []const u8) ?[]const u8 {
 
 /// Verify with additional context (domain separation) - must match signing context
 pub fn verifyWithContext(message: []const u8, context: []const u8, signature: []const u8, public_key: []const u8) bool {
-    // Recreate the domain-separated hash
-    var hasher = crypto.hash.blake2.Blake2b256.init(.{});
-    hasher.update(context);
-    hasher.update(message);
-
-    var domain_separated_hash: [32]u8 = undefined;
-    hasher.final(&domain_separated_hash);
-
+    // Use the same hash method as signWithContext
+    const domain_separated_hash = backend.hashWithContext(context, message);
     return verify(&domain_separated_hash, signature, public_key);
 }
 
-/// Batch verification for multiple signatures (more efficient than individual verification)
+/// Batch verification for multiple signatures (optimized for performance)
 pub fn verifyBatch(messages: []const []const u8, signatures: []const sign.Signature, public_keys: []const [key.PUBLIC_KEY_SIZE]u8) bool {
     if (messages.len != signatures.len or messages.len != public_keys.len) {
         return false;
     }
 
-    // Verify each signature individually
-    // Note: Ed25519 batch verification is complex to implement correctly,
-    // so we use individual verification for now
+    // For small batches, individual verification is faster due to setup overhead
+    if (messages.len <= 3) {
+        for (messages, signatures, public_keys) |message, signature, public_key| {
+            if (!verify(message, &signature.bytes, &public_key)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // For larger batches, use optimized batch verification
+    // This implementation parallelizes verification across multiple threads
+    return verifyBatchParallel(messages, signatures, public_keys);
+}
+
+/// Parallel batch verification for improved performance
+fn verifyBatchParallel(messages: []const []const u8, signatures: []const sign.Signature, public_keys: []const [key.PUBLIC_KEY_SIZE]u8) bool {
+    const num_threads = @min(std.Thread.getCpuCount() catch 1, messages.len);
+    const chunk_size = (messages.len + num_threads - 1) / num_threads;
+    
+    // For now, implement a simple concurrent verification
+    // In production, this would use a proper thread pool
+    var all_valid = std.atomic.Value(bool).init(true);
+    var threads = std.ArrayList(std.Thread).init(std.heap.page_allocator);
+    defer threads.deinit();
+    
+    var i: usize = 0;
+    while (i < messages.len) {
+        const end = @min(i + chunk_size, messages.len);
+        const chunk_messages = messages[i..end];
+        const chunk_signatures = signatures[i..end];
+        const chunk_public_keys = public_keys[i..end];
+        
+        const thread = std.Thread.spawn(.{}, verifyChunk, .{
+            chunk_messages,
+            chunk_signatures,
+            chunk_public_keys,
+            &all_valid,
+        }) catch {
+            // Fall back to sequential verification if threading fails
+            return verifySequential(messages, signatures, public_keys);
+        };
+        
+        threads.append(thread) catch {
+            // Fall back to sequential verification if we can't track threads
+            return verifySequential(messages, signatures, public_keys);
+        };
+        
+        i = end;
+    }
+    
+    // Wait for all threads to complete
+    for (threads.items) |thread| {
+        thread.join();
+    }
+    
+    return all_valid.load(.acquire);
+}
+
+/// Verify a chunk of signatures (used by parallel verification)
+fn verifyChunk(
+    messages: []const []const u8, 
+    signatures: []const sign.Signature, 
+    public_keys: []const [key.PUBLIC_KEY_SIZE]u8,
+    all_valid: *std.atomic.Value(bool)
+) void {
+    for (messages, signatures, public_keys) |message, signature, public_key| {
+        if (!verify(message, &signature.bytes, &public_key)) {
+            all_valid.store(false, .release);
+            return;
+        }
+    }
+}
+
+/// Sequential batch verification (fallback)
+fn verifySequential(messages: []const []const u8, signatures: []const sign.Signature, public_keys: []const [key.PUBLIC_KEY_SIZE]u8) bool {
     for (messages, signatures, public_keys) |message, signature, public_key| {
         if (!verify(message, &signature.bytes, &public_key)) {
             return false;
         }
     }
-
     return true;
 }
 

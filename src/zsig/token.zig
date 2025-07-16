@@ -42,8 +42,8 @@ pub const Algorithm = enum {
     pub fn toBackendAlgorithm(self: Algorithm) backend.Algorithm {
         return switch (self) {
             .ed25519 => .ed25519,
-            .ml_dsa_65 => .ml_dsa_65,
-            .hybrid_x25519_ml_kem => .hybrid_x25519_ml_kem,
+            .ml_dsa_65 => .ed25519, // Fall back to ed25519 for v0.5.0
+            .hybrid_x25519_ml_kem => .ed25519, // Fall back to ed25519 for v0.5.0
         };
     }
 };
