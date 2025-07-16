@@ -29,7 +29,7 @@ const Command = enum {
     token_refresh,
     jwt_create,
     jwt_verify,
-    // Batch operations for v0.5.0
+    // Batch operations for v0.4.0
     batch_sign,
     batch_verify,
     benchmark,
@@ -47,7 +47,7 @@ const Args = struct {
     seed: ?[]const u8 = null,
     passphrase: ?[]const u8 = null,
     context: ?[]const u8 = null,
-    format: []const u8 = "base64", // base64, hex, raw, pem
+    format: []const u8 = "base64", // base64, hex, raw
     inline_mode: bool = false,
     verbose: bool = false,
 
@@ -55,17 +55,17 @@ const Args = struct {
     issuer: ?[]const u8 = null,
     subject: ?[]const u8 = null,
     audience: ?[]const u8 = null,
-    expires_in: ?i64 = null,  // seconds from now
-    token_type: []const u8 = "auth",  // auth, session, transaction, etc.
-    algorithm: []const u8 = "ed25519",  // ed25519, secp256k1, secp256r1
-    claims: ?[]const u8 = null,  // JSON string for custom claims
-    token_string: ?[]const u8 = null,  // Token to verify/refresh
+    expires_in: ?i64 = null, // seconds from now
+    token_type: []const u8 = "auth", // auth, session, transaction, etc.
+    algorithm: []const u8 = "ed25519", // ed25519, secp256k1, secp256r1
+    claims: ?[]const u8 = null, // JSON string for custom claims
+    token_string: ?[]const u8 = null, // Token to verify/refresh
 
     // Batch operation args for v0.4.0
-    batch_size: ?usize = null,  // For benchmarks
-    iterations: ?usize = null,  // For benchmarks
-    input_dir: ?[]const u8 = null,  // Directory of files to process
-    output_dir: ?[]const u8 = null,  // Directory for output files
+    batch_size: ?usize = null, // For benchmarks
+    iterations: ?usize = null, // For benchmarks
+    input_dir: ?[]const u8 = null, // Directory of files to process
+    output_dir: ?[]const u8 = null, // Directory for output files
 };
 
 pub fn main() !void {
@@ -103,9 +103,15 @@ pub fn main() !void {
         .token_refresh => try cmdTokenRefresh(allocator, parsed_args),
         .jwt_create => try cmdJwtCreate(allocator, parsed_args),
         .jwt_verify => try cmdJwtVerify(allocator, parsed_args),
-        // Batch operations for v0.5.0
-        .batch_sign => try cmdBatchSign(allocator, parsed_args),
-        .batch_verify => try cmdBatchVerify(allocator, parsed_args),
+        // Batch operations for v0.4.0 (TODO: Implement)
+        .batch_sign => {
+            print("Error: batch_sign not yet implemented in v0.4.0\n", .{});
+            return CliError.InvalidArguments;
+        },
+        .batch_verify => {
+            print("Error: batch_verify not yet implemented in v0.4.0\n", .{});
+            return CliError.InvalidArguments;
+        },
         .benchmark => {
             print("Error: benchmark not yet implemented in v0.4.0\n", .{});
             return CliError.InvalidArguments;
@@ -119,21 +125,7 @@ fn parseArgs(args: [][:0]u8) !Args {
     if (args.len < 2) return CliError.InvalidArguments;
 
     const command_str = args[1];
-    const command = if (std.mem.eql(u8, command_str, "keygen")) Command.keygen
-    else if (std.mem.eql(u8, command_str, "sign")) Command.sign
-    else if (std.mem.eql(u8, command_str, "verify")) Command.verify
-    else if (std.mem.eql(u8, command_str, "pubkey")) Command.pubkey
-    else if (std.mem.eql(u8, command_str, "token_create")) Command.token_create
-    else if (std.mem.eql(u8, command_str, "token_verify")) Command.token_verify
-    else if (std.mem.eql(u8, command_str, "token_refresh")) Command.token_refresh
-    else if (std.mem.eql(u8, command_str, "jwt_create")) Command.jwt_create
-    else if (std.mem.eql(u8, command_str, "jwt_verify")) Command.jwt_verify
-    else if (std.mem.eql(u8, command_str, "batch_sign")) Command.batch_sign
-    else if (std.mem.eql(u8, command_str, "batch_verify")) Command.batch_verify
-    else if (std.mem.eql(u8, command_str, "benchmark")) Command.benchmark
-    else if (std.mem.eql(u8, command_str, "help")) Command.help
-    else if (std.mem.eql(u8, command_str, "version")) Command.version
-    else return CliError.InvalidArguments;
+    const command = if (std.mem.eql(u8, command_str, "keygen")) Command.keygen else if (std.mem.eql(u8, command_str, "sign")) Command.sign else if (std.mem.eql(u8, command_str, "verify")) Command.verify else if (std.mem.eql(u8, command_str, "pubkey")) Command.pubkey else if (std.mem.eql(u8, command_str, "token_create")) Command.token_create else if (std.mem.eql(u8, command_str, "token_verify")) Command.token_verify else if (std.mem.eql(u8, command_str, "token_refresh")) Command.token_refresh else if (std.mem.eql(u8, command_str, "jwt_create")) Command.jwt_create else if (std.mem.eql(u8, command_str, "jwt_verify")) Command.jwt_verify else if (std.mem.eql(u8, command_str, "batch_sign")) Command.batch_sign else if (std.mem.eql(u8, command_str, "batch_verify")) Command.batch_verify else if (std.mem.eql(u8, command_str, "benchmark")) Command.benchmark else if (std.mem.eql(u8, command_str, "help")) Command.help else if (std.mem.eql(u8, command_str, "version")) Command.version else return CliError.InvalidArguments;
 
     var parsed = Args{ .command = command };
 
@@ -187,10 +179,6 @@ fn parseArgs(args: [][:0]u8) !Args {
             parsed.claims = value;
         } else if (std.mem.eql(u8, flag, "--token-string")) {
             parsed.token_string = value;
-        } else if (std.mem.eql(u8, flag, "--input-dir")) {
-            parsed.input_dir = value;
-        } else if (std.mem.eql(u8, flag, "--output-dir")) {
-            parsed.output_dir = value;
         }
     }
 
@@ -225,37 +213,29 @@ fn cmdKeygen(allocator: std.mem.Allocator, args: Args) !void {
     // Generate output files
     const base_name = args.output_file orelse "zsig_key";
 
-    // Write private key file (.key or .pem)
-    const key_extension = if (std.mem.eql(u8, args.format, "pem")) "pem" else "key";
-    const key_filename = try std.fmt.allocPrint(allocator, "{s}.{s}", .{base_name, key_extension});
+    // Write private key file (.key)
+    const key_filename = try std.fmt.allocPrint(allocator, "{s}.key", .{base_name});
     defer allocator.free(key_filename);
 
-    const key_data = if (std.mem.eql(u8, args.format, "pem")) 
-        try keypair.exportPEM(allocator)
-    else
-        try keypair.exportBundle(allocator);
-    defer allocator.free(key_data);
+    const key_bundle = try keypair.exportBundle(allocator);
+    defer allocator.free(key_bundle);
 
-    try writeFile(key_filename, key_data);
+    try writeFile(key_filename, key_bundle);
 
-    // Write public key file (.pub or .pem)
-    const pub_extension = if (std.mem.eql(u8, args.format, "pem")) "pub.pem" else "pub";
-    const pub_filename = try std.fmt.allocPrint(allocator, "{s}.{s}", .{base_name, pub_extension});
+    // Write public key file (.pub)
+    const pub_filename = try std.fmt.allocPrint(allocator, "{s}.pub", .{base_name});
     defer allocator.free(pub_filename);
 
-    const pub_data = if (std.mem.eql(u8, args.format, "pem"))
-        try keypair.exportPublicKeyPEM(allocator)
-    else
-        try keypair.publicKeyHex(allocator);
-    defer allocator.free(pub_data);
+    const pub_hex = try keypair.publicKeyHex(allocator);
+    defer allocator.free(pub_hex);
 
-    try writeFile(pub_filename, pub_data);
+    try writeFile(pub_filename, pub_hex);
 
     if (args.verbose) {
         print("Generated {s} keypair:\n", .{algorithm.toString()});
         print("  Private key: {s}\n", .{key_filename});
         print("  Public key: {s}\n", .{pub_filename});
-        print("  Public key data: {s}\n", .{pub_data});
+        print("  Public key (hex): {s}\n", .{pub_hex});
     } else {
         print("{s} keypair generated: {s}.key, {s}.pub\n", .{ algorithm.toString(), base_name, base_name });
     }
@@ -442,14 +422,13 @@ fn cmdHelp() void {
         \\    --out <file>        Output filename prefix (default: zsig_key)
         \\    --seed <hex>        Use specific 64-char hex seed (deterministic)
         \\    --passphrase <str>  Generate from passphrase (deterministic)
-        \\    --format <fmt>      Key format: base64, pem (default: base64)
         \\
         \\SIGN OPTIONS:
         \\    --in <file>         Input file to sign
         \\    --key <file>        Private key file (.key)
         \\    --out <file>        Output signature file (default: input.sig)
         \\    --context <str>     Additional context for domain separation
-        \\    --format <fmt>      Output format: base64, hex, raw, pem (default: base64)
+        \\    --format <fmt>      Output format: base64, hex, raw (default: base64)
         \\    --inline            Create inline signature (message + signature)
         \\
         \\VERIFY OPTIONS:
@@ -562,26 +541,26 @@ fn loadPublicKey(allocator: std.mem.Allocator, filename: []const u8) ![zsig.PUBL
 
 fn cmdTokenCreate(allocator: std.mem.Allocator, args: Args) !void {
     const token_mod = @import("zsig/token.zig");
-    
+
     if (args.key_file == null) {
         print("Error: Private key file required (--key)\n", .{});
         return CliError.InvalidArguments;
     }
-    
+
     if (args.verbose) print("Creating Ghost token...\n", .{});
-    
+
     // Load keypair
     const keypair = try loadKeypair(allocator, args.key_file.?);
-    
+
     // Parse algorithm
     const algorithm = token_mod.Algorithm.fromString(args.algorithm) orelse {
         print("Error: Unsupported algorithm '{s}'. Supported: ed25519, secp256k1, secp256r1\n", .{args.algorithm});
         return CliError.InvalidArguments;
     };
-    
+
     // TODO: Add token type support when token.zig is updated
     _ = args.token_type; // Suppress unused warning
-    
+
     // Build payload
     const now = std.time.timestamp();
     var payload = token_mod.TokenPayload{
@@ -590,26 +569,26 @@ fn cmdTokenCreate(allocator: std.mem.Allocator, args: Args) !void {
         .subject = args.subject,
         .audience = args.audience,
     };
-    
+
     if (args.expires_in) |expires_in| {
         payload.expires_at = now + expires_in;
     }
-    
+
     // Parse custom claims if provided (TODO: implement proper JSON claim parsing)
     if (args.claims) |_| {
         print("Warning: Custom claims not yet implemented in CLI\n", .{});
     }
-    
+
     // Create token
     const token = token_mod.GhostToken.create(allocator, payload, keypair, algorithm) catch |err| {
         print("Error creating token: {}\n", .{err});
         return;
     };
     defer token.deinitCreated(allocator);
-    
+
     const token_string = try token.encode(allocator);
     defer allocator.free(token_string);
-    
+
     if (args.output_file) |output| {
         try writeFile(output, token_string);
         if (args.verbose) print("Token written to: {s}\n", .{output});
@@ -620,12 +599,12 @@ fn cmdTokenCreate(allocator: std.mem.Allocator, args: Args) !void {
 
 fn cmdTokenVerify(allocator: std.mem.Allocator, args: Args) !void {
     const token_mod = @import("zsig/token.zig");
-    
+
     if (args.public_key_file == null) {
         print("Error: Public key file required (--pubkey)\n", .{});
         return CliError.InvalidArguments;
     }
-    
+
     const token_string = if (args.token_string) |ts| ts else if (args.input_file) |file| blk: {
         const contents = try readFile(allocator, file);
         defer allocator.free(contents);
@@ -637,19 +616,19 @@ fn cmdTokenVerify(allocator: std.mem.Allocator, args: Args) !void {
         return CliError.InvalidArguments;
     };
     defer if (args.input_file != null) allocator.free(token_string);
-    
+
     if (args.verbose) print("Verifying Ghost token...\n", .{});
-    
+
     // Load public key
     const public_key = try loadPublicKey(allocator, args.public_key_file.?);
-    
+
     // Decode token (just to check format and get payload info)
     const token = token_mod.GhostToken.decode(allocator, token_string) catch |err| {
         print("Error: Invalid token format: {}\n", .{err});
         return;
     };
     defer token.deinit(allocator);
-    
+
     // Verify token using static method
     const payload = token_mod.GhostToken.verify(allocator, token_string, public_key) catch |err| {
         print("Error: Token verification failed: {}\n", .{err});
@@ -668,18 +647,18 @@ fn cmdTokenVerify(allocator: std.mem.Allocator, args: Args) !void {
         if (payload.session_id) |sid| allocator.free(sid);
         if (payload.nonce) |nonce| allocator.free(nonce);
     }
-    
+
     // Check expiration
     if (payload.isExpired()) {
         print("Warning: Token is expired\n", .{});
     }
-    
+
     if (!payload.isValidYet()) {
         print("Warning: Token not valid yet (nbf)\n", .{});
     }
-    
+
     print("Token verification successful!\n", .{});
-    
+
     if (args.verbose) {
         print("Algorithm: {s}\n", .{token.header.algorithm.toString()});
         print("Type: {s}\n", .{token.header.token_type.toString()});
@@ -691,12 +670,12 @@ fn cmdTokenVerify(allocator: std.mem.Allocator, args: Args) !void {
 
 fn cmdTokenRefresh(allocator: std.mem.Allocator, args: Args) !void {
     const token_mod = @import("zsig/token.zig");
-    
+
     if (args.key_file == null) {
         print("Error: Private key file required (--key)\n", .{});
         return CliError.InvalidArguments;
     }
-    
+
     const token_string = if (args.token_string) |ts| ts else if (args.input_file) |file| blk: {
         const contents = try readFile(allocator, file);
         defer allocator.free(contents);
@@ -705,19 +684,19 @@ fn cmdTokenRefresh(allocator: std.mem.Allocator, args: Args) !void {
         print("Error: Token string required (--token-string or --in)\n", .{});
         return CliError.InvalidArguments;
     };
-    
+
     if (args.verbose) print("Refreshing Ghost token...\n", .{});
-    
+
     // Load keypair
     const keypair = try loadKeypair(allocator, args.key_file.?);
-    
+
     // Decode existing token
     var token = token_mod.GhostToken.decode(allocator, token_string) catch |err| {
         print("Error: Invalid token format: {}\n", .{err});
         return;
     };
     defer token.deinit(allocator);
-    
+
     // Update expiration
     const now = std.time.timestamp();
     if (args.expires_in) |expires_in| {
@@ -726,17 +705,17 @@ fn cmdTokenRefresh(allocator: std.mem.Allocator, args: Args) !void {
         // Default to 1 hour extension
         token.payload.expires_at = now + 3600;
     }
-    
+
     // Re-sign with new expiration
     const new_token = token_mod.GhostToken.create(allocator, token.payload, keypair, token.header.algorithm) catch |err| {
         print("Error refreshing token: {}\n", .{err});
         return;
     };
     defer new_token.deinitCreated(allocator);
-    
+
     const new_token_string = try new_token.encode(allocator);
     defer allocator.free(new_token_string);
-    
+
     if (args.output_file) |output| {
         try writeFile(output, new_token_string);
         if (args.verbose) print("Refreshed token written to: {s}\n", .{output});
@@ -747,42 +726,42 @@ fn cmdTokenRefresh(allocator: std.mem.Allocator, args: Args) !void {
 
 fn cmdJwtCreate(allocator: std.mem.Allocator, args: Args) !void {
     const token_mod = @import("zsig/token.zig");
-    
+
     if (args.key_file == null) {
         print("Error: Private key file required (--key)\n", .{});
         return CliError.InvalidArguments;
     }
-    
+
     if (args.verbose) print("Creating JWT-compatible token...\n", .{});
-    
+
     // Load keypair
     const keypair = try loadKeypair(allocator, args.key_file.?);
-    
+
     // Build standard JWT claims
     var claims = std.json.ObjectMap.init(allocator);
     defer claims.deinit();
-    
+
     const now = std.time.timestamp();
     try claims.put("iat", std.json.Value{ .integer = now });
-    
+
     if (args.issuer) |iss| try claims.put("iss", std.json.Value{ .string = iss });
     if (args.subject) |sub| try claims.put("sub", std.json.Value{ .string = sub });
     if (args.audience) |aud| try claims.put("aud", std.json.Value{ .string = aud });
     if (args.expires_in) |expires_in| {
         try claims.put("exp", std.json.Value{ .integer = now + expires_in });
     }
-    
+
     // Parse custom claims if provided (TODO: implement proper JSON claim parsing)
     if (args.claims) |_| {
         print("Warning: Custom claims not yet implemented in CLI\n", .{});
     }
-    
+
     const jwt = token_mod.JwtCompat.createJWT(allocator, std.json.Value{ .object = claims }, keypair) catch |err| {
         print("Error creating JWT: {}\n", .{err});
         return;
     };
     defer allocator.free(jwt);
-    
+
     if (args.output_file) |output| {
         try writeFile(output, jwt);
         if (args.verbose) print("JWT written to: {s}\n", .{output});
@@ -793,12 +772,12 @@ fn cmdJwtCreate(allocator: std.mem.Allocator, args: Args) !void {
 
 fn cmdJwtVerify(allocator: std.mem.Allocator, args: Args) !void {
     const token_mod = @import("zsig/token.zig");
-    
+
     if (args.public_key_file == null) {
         print("Error: Public key file required (--pubkey)\n", .{});
         return CliError.InvalidArguments;
     }
-    
+
     const jwt_string = if (args.token_string) |ts| ts else if (args.input_file) |file| blk: {
         const contents = try readFile(allocator, file);
         defer allocator.free(contents);
@@ -807,93 +786,24 @@ fn cmdJwtVerify(allocator: std.mem.Allocator, args: Args) !void {
         print("Error: JWT string required (--token-string or --in)\n", .{});
         return CliError.InvalidArguments;
     };
-    
+
     if (args.verbose) print("Verifying JWT...\n", .{});
-    
+
     // Load public key
     const public_key = try loadPublicKey(allocator, args.public_key_file.?);
-    
+
     // Verify JWT
     const claims = token_mod.JwtCompat.verifyJWT(allocator, jwt_string, public_key) catch |err| {
         print("Error: JWT verification failed: {}\n", .{err});
         return;
     };
     // Note: JSON cleanup is handled automatically by std.json
-    
+
     print("JWT verification successful!\n", .{});
-    
+
     if (args.verbose) {
         const claims_json = std.json.stringifyAlloc(allocator, claims, .{ .whitespace = .indent_2 }) catch "{}";
         defer allocator.free(claims_json);
         print("Claims:\n{s}\n", .{claims_json});
-    }
-}
-
-/// Batch sign multiple files
-fn cmdBatchSign(allocator: std.mem.Allocator, args: Args) !void {
-    _ = allocator;
-    const input_dir = args.input_dir orelse {
-        print("Error: --input-dir required for batch signing\n", .{});
-        return CliError.InvalidArguments;
-    };
-    
-    const key_file = args.key_file orelse {
-        print("Error: --key required for batch signing\n", .{});
-        return CliError.InvalidArguments;
-    };
-    
-    print("Batch signing not yet fully implemented.\n", .{});
-    print("Would sign all files in directory: {s}\n", .{input_dir});
-    print("Using key file: {s}\n", .{key_file});
-}
-
-/// Batch verify multiple signature files
-fn cmdBatchVerify(allocator: std.mem.Allocator, args: Args) !void {
-    const input_dir = args.input_dir orelse {
-        print("Error: --input-dir required for batch verification\n", .{});
-        return CliError.InvalidArguments;
-    };
-    
-    const pubkey_file = args.public_key_file orelse {
-        print("Error: --pubkey required for batch verification\n", .{});
-        return CliError.InvalidArguments;
-    };
-    
-    // Load public key
-    const pubkey_data = readFile(allocator, pubkey_file) catch |err| switch (err) {
-        error.FileNotFound => {
-            print("Error: Public key file not found: {s}\n", .{pubkey_file});
-            return CliError.FileNotFound;
-        },
-        else => return err,
-    };
-    defer allocator.free(pubkey_data);
-    
-    const public_key = zsig.key.Keypair.publicKeyFromHex(pubkey_data) catch {
-        print("Error: Invalid public key format\n", .{});
-        return CliError.InvalidKeyFormat;
-    };
-    
-    if (args.verbose) {
-        print("Batch verifying signatures in directory: {s}\n", .{input_dir});
-        print("Using public key: {s}\n", .{pubkey_file});
-    }
-    
-    // For now, demonstrate the batch verification API
-    // In production, this would enumerate files and verify them
-    const test_messages = [_][]const u8{ "message1", "message2", "message3" };
-    const test_sigs = [_]zsig.sign.Signature{ 
-        zsig.sign.Signature{ .bytes = [_]u8{0} ** 64 },
-        zsig.sign.Signature{ .bytes = [_]u8{0} ** 64 },
-        zsig.sign.Signature{ .bytes = [_]u8{0} ** 64 },
-    };
-    const test_pubkeys = [_][32]u8{ public_key, public_key, public_key };
-    
-    const batch_result = zsig.verify.verifyBatch(&test_messages, &test_sigs, &test_pubkeys);
-    
-    if (batch_result) {
-        print("✓ Batch verification successful\n", .{});
-    } else {
-        print("✗ Batch verification failed\n", .{});
     }
 }

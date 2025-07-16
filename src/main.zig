@@ -17,12 +17,10 @@ pub fn main() !void {
 
     // Check if this should be handled by CLI
     const first_arg = args[1];
-    const cli_commands = [_][]const u8{ 
-        "keygen", "sign", "verify", "pubkey", "help", "version",
+    const cli_commands = [_][]const u8{
+        "keygen",       "sign",         "verify",        "pubkey",     "help",       "version",
         // v0.4.0 token commands
         "token_create", "token_verify", "token_refresh", "jwt_create", "jwt_verify",
-        // v0.5.0 batch commands
-        "batch_sign", "batch_verify", "benchmark"
     };
 
     for (cli_commands) |cmd| {
