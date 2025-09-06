@@ -87,12 +87,13 @@ pub const TokenHeader = struct {
     key_id: ?[]const u8 = null, // Optional key identifier
 
     pub fn encode(self: TokenHeader, allocator: std.mem.Allocator) ![]u8 {
-        const header_json = std.json.stringifyAlloc(allocator, .{
+        const header_obj = .{
             .alg = self.algorithm.toString(),
             .typ = self.token_type.toString(),
             .ver = self.version,
             .kid = self.key_id,
-        }, .{}) catch return error.JsonEncodingError;
+        };
+        const header_json = try std.json.Stringify.valueAlloc(allocator, header_obj, .{});
         defer allocator.free(header_json);
 
         const encoder = std.base64.url_safe_no_pad.Encoder;
@@ -179,7 +180,7 @@ pub const TokenPayload = struct {
             }
         }
 
-        const payload_json = std.json.stringifyAlloc(allocator, std.json.Value{ .object = claims }, .{}) catch return error.JsonEncodingError;
+        const payload_json = try std.json.Stringify.valueAlloc(allocator, std.json.Value{ .object = claims }, .{});
         defer allocator.free(payload_json);
 
         const encoder = std.base64.url_safe_no_pad.Encoder;

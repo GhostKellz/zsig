@@ -79,7 +79,7 @@ pub fn digestFromHex(hex_digest: []const u8) ![DIGEST_SIZE]u8 {
 
 /// Timing-safe digest comparison
 pub fn digestEqual(a: [DIGEST_SIZE]u8, b: [DIGEST_SIZE]u8) bool {
-    return std.crypto.utils.timingSafeEql([DIGEST_SIZE]u8, a, b);
+    return std.mem.eql(u8, &a, &b);
 }
 
 test "Blake3 basic functionality" {

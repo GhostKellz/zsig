@@ -525,12 +525,12 @@ fn loadPublicKey(allocator: std.mem.Allocator, filename: []const u8) ![zsig.PUBL
     defer allocator.free(contents);
 
     // Remove newlines and whitespace
-    var clean_hex = std.ArrayList(u8).init(allocator);
-    defer clean_hex.deinit();
+    var clean_hex = std.ArrayListUnmanaged(u8){};
+    defer clean_hex.deinit(allocator);
 
     for (contents) |char| {
         if (std.ascii.isAlphanumeric(char)) {
-            try clean_hex.append(char);
+            try clean_hex.append(allocator, char);
         }
     }
 
@@ -802,7 +802,7 @@ fn cmdJwtVerify(allocator: std.mem.Allocator, args: Args) !void {
     print("JWT verification successful!\n", .{});
 
     if (args.verbose) {
-        const claims_json = std.json.stringifyAlloc(allocator, claims, .{ .whitespace = .indent_2 }) catch "{}";
+        const claims_json = std.json.Stringify.valueAlloc(allocator, claims, .{ .whitespace = .indent_2 }) catch "{}";
         defer allocator.free(claims_json);
         print("Claims:\n{s}\n", .{claims_json});
     }

@@ -19,11 +19,11 @@ pub fn build(b: *std.Build) void {
     const optimize = b.standardOptimizeOption(.{});
 
     // Get dependencies (zsync is lazy-loaded)
-    // const zsync_dep = b.dependency("zsync", .{
-    //     .target = target,
-    //     .optimize = optimize,
-    // });
-    // const zsync_mod = zsync_dep.module("zsync");
+    const zsync_dep = b.lazyDependency("zsync", .{
+        .target = target,
+        .optimize = optimize,
+    });
+    const zsync_mod = if (zsync_dep) |dep| dep.module("zsync") else null;
 
     // This creates a module, which represents a collection of source files alongside
     // some compilation options, such as optimization mode and linked system libraries.
@@ -43,8 +43,10 @@ pub fn build(b: *std.Build) void {
         // Later on we'll use this module as the root module of a test executable
         // which requires us to specify a target.
         .target = target,
-        // No external dependencies for pure Zig implementation
-        .imports = &.{},
+        // Include zsync for async runtime support
+        .imports = if (zsync_mod) |mod| &.{
+            .{ .name = "zsync", .module = mod },
+        } else &.{},
     });
 
     // Here we define an executable. An executable needs to have a root module
@@ -78,14 +80,16 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
             // List of modules available for import in source files part of the
             // root module.
-            .imports = &.{
+            .imports = if (zsync_mod) |sync_mod| &.{
                 // Here "zsig" is the name you will use in your source code to
                 // import this module (e.g. `@import("zsig")`). The name is
                 // repeated because you are allowed to rename your imports, which
                 // can be extremely useful in case of collisions (which can happen
                 // importing modules from different packages).
                 .{ .name = "zsig", .module = mod },
-                // No external crypto dependencies in v0.5.0
+                .{ .name = "zsync", .module = sync_mod },
+            } else &.{
+                .{ .name = "zsig", .module = mod },
             },
         }),
     });
